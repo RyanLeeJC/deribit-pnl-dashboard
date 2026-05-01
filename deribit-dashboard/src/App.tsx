@@ -16,13 +16,20 @@ type LoadedState = {
 export default function App() {
   const [loaded, setLoaded] = useState<LoadedState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [lastCsv, setLastCsv] = useState<{ fileName: string; text: string } | null>(null)
+  const [homeConfirmOpen, setHomeConfirmOpen] = useState(false)
   const [tableTab, setTableTab] = useState<
     'trades' | 'transfers' | 'realisedPnl' | 'negativeBalanceFees'
   >('realisedPnl')
   const [chartTab, setChartTab] = useState<'equity' | 'realisedPnl' | 'pnl'>('equity')
   const [pnlCalOpen, setPnlCalOpen] = useState(false)
   const [pnlCalMonth, setPnlCalMonth] = useState<{ y: number; m: number } | null>(null)
+
+  const goHome = () => {
+    setPnlCalOpen(false)
+    setPnlCalMonth(null)
+    setLoaded(null)
+    setError(null)
+  }
 
   const equityData = useMemo(() => {
     if (!loaded) return []
@@ -117,31 +124,10 @@ export default function App() {
       const parsed = parseDeribitCsv(text)
       const rows = sortChronological(parsed.rows)
       const model = buildDashboardModel(rows)
-      setLastCsv({ fileName: file.name, text })
       setTableTab('realisedPnl')
       setChartTab('equity')
       setLoaded({
         fileName: file.name,
-        model,
-        warnings: parsed.warnings.map((w) => `Row ${w.rowNumber}: ${w.message}`),
-      })
-    } catch (e) {
-      setLoaded(null)
-      setError(e instanceof Error ? e.message : 'Failed to parse file.')
-    }
-  }
-
-  function refreshFromLastCsv() {
-    if (!lastCsv) return
-    setError(null)
-    try {
-      const parsed = parseDeribitCsv(lastCsv.text)
-      const rows = sortChronological(parsed.rows)
-      const model = buildDashboardModel(rows)
-      setTableTab('realisedPnl')
-      setChartTab((t) => t)
-      setLoaded({
-        fileName: lastCsv.fileName,
         model,
         warnings: parsed.warnings.map((w) => `Row ${w.rowNumber}: ${w.message}`),
       })
@@ -165,6 +151,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              onClick={() => {
+                if (loaded) setHomeConfirmOpen(true)
+                else goHome()
+              }}
+              title="Home"
+            >
+              Home
+            </button>
             <HoverPopover label="Definitions">
               <div className="space-y-3">
                 {ACCOUNT_FIELD_INFO.map((x) => (
@@ -175,17 +172,6 @@ export default function App() {
                 ))}
               </div>
             </HoverPopover>
-
-            {loaded ? (
-              <button
-                type="button"
-                className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                onClick={refreshFromLastCsv}
-                title="Recompute dashboard from last uploaded CSV"
-              >
-                Refresh
-              </button>
-            ) : null}
 
             {loaded ? (
               <button
@@ -211,21 +197,11 @@ export default function App() {
                 Download HTML
               </button>
             ) : null}
-            {loaded ? (
-              <button
-                type="button"
-                className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                onClick={() => {
-                  setLoaded(null)
-                  setError(null)
-                  setLastCsv(null)
-                }}
-              >
-                Clear
-              </button>
-            ) : null}
 
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white">
+            <label
+              className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              title="Upload a new CSV"
+            >
               <input
                 className="hidden"
                 type="file"
@@ -243,6 +219,41 @@ export default function App() {
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-4 py-6">
+        {homeConfirmOpen ? (
+          <div className="fixed inset-0 z-[70]">
+            <button
+              type="button"
+              className="absolute inset-0 cursor-pointer bg-black/60"
+              onClick={() => setHomeConfirmOpen(false)}
+              aria-label="Close confirmation"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+              <div className="pointer-events-auto w-[420px] max-w-[calc(100vw-2rem)] rounded-2xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl">
+                <div className="text-sm font-semibold text-zinc-100">This will clear the Dashboard.</div>
+                <div className="mt-1 text-sm text-zinc-400">Confirm?</div>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                    onClick={() => setHomeConfirmOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded-md bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                    onClick={() => {
+                      setHomeConfirmOpen(false)
+                      goHome()
+                    }}
+                  >
+                    Yes
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {!loaded ? (
           <label className="block cursor-pointer rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800/60">
             <input
@@ -581,7 +592,7 @@ export default function App() {
                   Showing up to 50 rows
                 </div>
               </div>
-              <div className="overflow-x-auto border-t border-zinc-200 dark:border-zinc-800">
+              <div className="h-[420px] overflow-auto border-t border-zinc-200 dark:border-zinc-800">
                 {tableTab === 'trades' ? (
                   <table className="min-w-full text-left text-sm">
                     <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
