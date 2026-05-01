@@ -1,0 +1,5 @@
+deribit-dashboard/node_modules/
+deribit-dashboard/dist/
+
+# Local / personal exports — do not publish to a class demo repo
+Jayne Deribit Transaction Log/
