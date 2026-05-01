@@ -267,9 +267,21 @@ export default function App() {
               }}
             />
             <div className="mx-auto max-w-xl space-y-3">
-              <div className="text-base font-semibold">Upload your Deribit transaction log CSV.</div>
+              <div className="text-base font-semibold">Upload your Deribit Transaction Log CSV.</div>
               <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                Your file is processed entirely in the browser. Nothing is uploaded.
+                Your file is processed entirely in the browser. Nothing is uploaded into any servers.
+              </div>
+              <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                Go to your{' '}
+                <a
+                  className="cursor-pointer underline underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  href="https://www.deribit.com/account/ETH/transaction"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  Transaction Log
+                </a>
+                , choose your Asset, Date Range, and click on Download Logs.
               </div>
               {error ? (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
@@ -277,7 +289,7 @@ export default function App() {
                 </div>
               ) : null}
               <div className="pt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Click to upload
+                Click here to upload your .csv log file for analysis.
               </div>
             </div>
           </label>
@@ -741,6 +753,7 @@ export default function App() {
                     <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
+                        <Th className="text-right">Equity</Th>
                         <Th className="text-right">Fee Charged</Th>
                       </tr>
                     </thead>
@@ -748,6 +761,9 @@ export default function App() {
                       {loaded.model.tables.negativeBalanceFees.slice(0, 50).map((r) => (
                         <tr key={`${r.t}-${r.feeCharged ?? ''}`}>
                           <Td className="whitespace-nowrap">{formatDateTime(r.t)}</Td>
+                          <Td className="whitespace-nowrap text-right">
+                            {r.equity == null ? '-' : formatAsset(r.equity, displayUnit)}
+                          </Td>
                           <Td className="whitespace-nowrap text-right">
                             {r.feeChargedText != null
                               ? `${r.feeChargedText} ${displayUnit}`
@@ -1044,7 +1060,7 @@ function PnlCalendarModal(props: {
               {calMode === 'month' ? (
                 <button
                   type="button"
-                  className="min-w-[140px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
+                  className="min-w-[100px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
                   title="Switch to year view"
                   onClick={() => {
                     setYearModeYear(y)
@@ -1057,7 +1073,7 @@ function PnlCalendarModal(props: {
               ) : (
                 <button
                   type="button"
-                  className="min-w-[140px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
+                  className="min-w-[100px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
                   title="Back to month view"
                   onClick={() => {
                     const target = clampMonthToBounds({ y: yearModeYear, m: lastMonthInYearMode })
@@ -1082,7 +1098,7 @@ function PnlCalendarModal(props: {
               </button>
               <button
                 type="button"
-                className="cursor-pointer rounded border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                className="ml-2 cursor-pointer rounded border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
                 onClick={props.onClose}
               >
                 Close
@@ -1142,7 +1158,13 @@ function PnlCalendarModal(props: {
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div
                             className="text-sm font-semibold tabular-nums"
-                            style={tone ? { color: tone } : undefined}
+                            style={
+                              tone
+                                ? { color: tone }
+                                : pnl == null || !Number.isFinite(pnl)
+                                  ? { color: '#a1a1aa' }
+                                  : undefined
+                            }
                           >
                             {pnl == null || !Number.isFinite(pnl) ? '-' : fmtPnlCell(pnl)}
                           </div>
@@ -1204,7 +1226,7 @@ function PnlCalendarModal(props: {
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div
                           className="text-sm font-semibold tabular-nums"
-                          style={tone ? { color: tone } : undefined}
+                          style={tone ? { color: tone } : totalText === '-' ? { color: '#a1a1aa' } : undefined}
                         >
                           {totalText}
                         </div>

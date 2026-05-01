@@ -495,7 +495,7 @@ export function generateStandaloneHtml(args: {
 
       function renderNegBalFees() {
         setHead(\`<tr>
-          <th>Date</th><th class="right">Fee Charged</th>
+          <th>Date</th><th class="right">Equity</th><th class="right">Fee Charged</th>
         </tr>\`);
         clearBody();
         for (const r of (model.tables.negativeBalanceFees || []).slice(0, 50)) {
@@ -507,6 +507,7 @@ export function generateStandaloneHtml(args: {
             return el;
           };
           tr.appendChild(td(fmtDateTime(r.t)));
+          tr.appendChild(td(r.equity == null ? '-' : fmtAmt(r.equity), 'right'));
           const txt = (r.feeChargedText || '').trim();
           tr.appendChild(td(txt ? (txt + ' ' + DU) : (r.feeCharged == null ? '-' : (String(r.feeCharged) + ' ' + DU)), 'right'));
           body.appendChild(tr);

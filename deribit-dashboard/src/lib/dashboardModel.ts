@@ -88,6 +88,7 @@ export type DashboardModel = {
     }>
     negativeBalanceFees: Array<{
       t: number
+      equity: number | null
       feeCharged: number | null
       feeChargedRaw: string | null
       feeChargedText: string | null
@@ -252,6 +253,7 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
     .sort((a, b) => b.date.getTime() - a.date.getTime())
     .map((r) => ({
       t: r.date.getTime(),
+      equity: r.equity,
       // Spec: show the CSV "Cash Flow" value under Fee Charged (as-is, no sign flip).
       feeCharged: r.cashFlow,
       feeChargedRaw:
