@@ -85,6 +85,12 @@ export type DeribitCsvParseResult = {
 const DERIBIT_DATE_FORMATS = [
   // Deribit export format (example)
   'DD MMM YYYY HH:mm:ss',
+  // Some exports / re-saved files use full month names (e.g. "30 September 2025 08:00:00")
+  'DD MMMM YYYY HH:mm:ss',
+  'D MMMM YYYY H:mm:ss',
+  'D MMMM YYYY HH:mm:ss',
+  'DD MMM YYYY HH:mm',
+  'DD MMMM YYYY HH:mm',
   // Common “Excel-saved” / locale numeric formats seen in re-saved CSVs
   'D/M/YYYY H:mm',
   'D/M/YYYY HH:mm',
@@ -127,8 +133,10 @@ function parseDeribitDate(
   rowNumber: number,
   warnings: DeribitCsvParseWarning[],
 ): Date | null {
-  const s = normalizeBlank(value)
-  if (s === null) return null
+  const raw = normalizeBlank(value)
+  if (raw === null) return null
+  // Normalize common month spelling differences (e.g. "Sept" vs "Sep") before strict parsing.
+  const s = raw.replace(/\bSept\b/g, 'Sep').replace(/\bSEPT\b/g, 'SEP')
   // CSV timestamps are UTC (e.g. "30 Apr 2026 08:00:00" means 08:00 UTC).
   // Some users re-save via Excel and end up with numeric dates like "30/4/2026 8:00".
   let parsed: dayjs.Dayjs | null = null
@@ -208,6 +216,8 @@ export function parseDeribitCsv(text: string): DeribitCsvParseResult {
     'deposit',
     'withdrawal',
     'withdraw',
+    'transfer',
+    'negative_balance_fee',
     'lock_deposit_balance',
     'unlock_deposit_balance',
   ])

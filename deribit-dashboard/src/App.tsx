@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { buildDashboardModel } from './lib/dashboardModel'
 import type { DashboardModel } from './lib/dashboardModel'
 import { ACCOUNT_FIELD_INFO } from './lib/accountFieldInfo'
 import { parseDeribitCsv, sortChronological } from './lib/deribitCsv'
 import { generateStandaloneHtml } from './lib/exportHtml'
-import { formatBtc, formatBtcFixed, formatDate, formatDateTime, sgtDateKey } from './lib/format'
+import { formatAsset, formatAssetFixed, formatDate, formatDateTime, formatPeriod, sgtDateKey } from './lib/format'
 
 type LoadedState = {
   fileName: string
@@ -17,8 +17,12 @@ export default function App() {
   const [loaded, setLoaded] = useState<LoadedState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastCsv, setLastCsv] = useState<{ fileName: string; text: string } | null>(null)
-  const [tableTab, setTableTab] = useState<'trades' | 'transfers' | 'realisedPnl'>('trades')
+  const [tableTab, setTableTab] = useState<
+    'trades' | 'transfers' | 'realisedPnl' | 'negativeBalanceFees'
+  >('realisedPnl')
   const [chartTab, setChartTab] = useState<'equity' | 'realisedPnl' | 'pnl'>('equity')
+  const [pnlCalOpen, setPnlCalOpen] = useState(false)
+  const [pnlCalMonth, setPnlCalMonth] = useState<{ y: number; m: number } | null>(null)
 
   const equityData = useMemo(() => {
     if (!loaded) return []
@@ -80,6 +84,32 @@ export default function App() {
     }))
   }, [loaded])
 
+  const realisedByDayKey = useMemo(() => {
+    if (!loaded) return { byDay: new Map<string, number>(), minT: null as number | null, maxT: null as number | null }
+    const m = new Map<string, number>()
+    let minT: number | null = null
+    let maxT: number | null = null
+    // Sum realised PnL per SGT day (not cumulative).
+    for (const r of loaded.model.tables.realisedPnl) {
+      const key = sgtDateKey(r.t)
+      m.set(key, (m.get(key) ?? 0) + r.realisedPnl)
+      minT = minT == null ? r.t : Math.min(minT, r.t)
+      maxT = maxT == null ? r.t : Math.max(maxT, r.t)
+    }
+    return { byDay: m, minT, maxT }
+  }, [loaded])
+
+  useEffect(() => {
+    if (!loaded) return
+    const to = loaded.model.meta.to
+    if (to == null) return
+    const d = new Date(to)
+    const sgt = new Date(d.getTime() + 8 * 60 * 60 * 1000)
+    setPnlCalMonth({ y: sgt.getUTCFullYear(), m: sgt.getUTCMonth() + 1 })
+  }, [loaded])
+
+  const displayUnit = loaded?.model.meta.displayUnit ?? 'BTC'
+
   async function onFileSelected(file: File) {
     setError(null)
     try {
@@ -88,7 +118,7 @@ export default function App() {
       const rows = sortChronological(parsed.rows)
       const model = buildDashboardModel(rows)
       setLastCsv({ fileName: file.name, text })
-      setTableTab('trades')
+      setTableTab('realisedPnl')
       setChartTab('equity')
       setLoaded({
         fileName: file.name,
@@ -108,7 +138,7 @@ export default function App() {
       const parsed = parseDeribitCsv(lastCsv.text)
       const rows = sortChronological(parsed.rows)
       const model = buildDashboardModel(rows)
-      setTableTab((t) => t)
+      setTableTab('realisedPnl')
       setChartTab((t) => t)
       setLoaded({
         fileName: lastCsv.fileName,
@@ -139,8 +169,8 @@ export default function App() {
               <div className="space-y-3">
                 {ACCOUNT_FIELD_INFO.map((x) => (
                   <div key={x.key}>
-                    <div className="text-sm font-semibold text-black">{x.title}</div>
-                    <div className="mt-1 text-sm text-zinc-700">{x.description}</div>
+                    <div className="text-sm font-semibold text-white">{x.title}</div>
+                    <div className="mt-1 text-sm text-zinc-100">{x.description}</div>
                   </div>
                 ))}
               </div>
@@ -149,7 +179,7 @@ export default function App() {
             {loaded ? (
               <button
                 type="button"
-                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 onClick={refreshFromLastCsv}
                 title="Recompute dashboard from last uploaded CSV"
               >
@@ -160,7 +190,7 @@ export default function App() {
             {loaded ? (
               <button
                 type="button"
-                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 onClick={() => {
                   const html = generateStandaloneHtml({
                     title: 'Deribit PnL Dashboard',
@@ -184,7 +214,7 @@ export default function App() {
             {loaded ? (
               <button
                 type="button"
-                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 onClick={() => {
                   setLoaded(null)
                   setError(null)
@@ -242,21 +272,44 @@ export default function App() {
           </label>
         ) : (
           <div className="space-y-6">
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <StatCard
                 label="PNL (CURRENT)"
                 value={
                   loaded.model.totals.pnlCurrent == null
                     ? '-'
-                    : formatBtcFixed(loaded.model.totals.pnlCurrent, 4)
+                    : formatAssetFixed(loaded.model.totals.pnlCurrent, 4, displayUnit)
                 }
+                valueNumber={loaded.model.totals.pnlCurrent}
+                actionLabel="PNL Calendar"
+                onAction={() => setPnlCalOpen(true)}
               />
               <StatCard
                 label="REALISED PNL (TOTAL)"
-                value={formatBtcFixed(loaded.model.totals.realisedPnl, 4)}
+                value={formatAssetFixed(loaded.model.totals.realisedPnl, 4, displayUnit)}
+                valueNumber={loaded.model.totals.realisedPnl}
               />
-              <StatCard label="FEES (TOTAL)" value={formatBtc(loaded.model.totals.feeCharged)} />
+              <StatCard
+                label="FEES (TOTAL)"
+                value={formatAsset(loaded.model.totals.feeCharged, displayUnit)}
+              />
+              <StatCard
+                label="PERIOD"
+                value={formatPeriod(loaded.model.meta.from, loaded.model.meta.to)}
+              />
             </section>
+
+            {pnlCalOpen && loaded && pnlCalMonth ? (
+              <PnlCalendarModal
+                displayUnit={displayUnit}
+                month={pnlCalMonth}
+                onChangeMonth={setPnlCalMonth}
+                onClose={() => setPnlCalOpen(false)}
+                valueByDayKey={realisedByDayKey.byDay}
+                minT={realisedByDayKey.minT}
+                maxT={realisedByDayKey.maxT}
+              />
+            ) : null}
 
             <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
               <div className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:col-span-2">
@@ -266,7 +319,7 @@ export default function App() {
                       type="button"
                       onClick={() => setChartTab('equity')}
                       className={[
-                        'rounded-md px-3 py-1.5 text-sm font-semibold',
+                        'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
                         chartTab === 'equity'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
@@ -278,7 +331,7 @@ export default function App() {
                       type="button"
                       onClick={() => setChartTab('pnl')}
                       className={[
-                        'rounded-md px-3 py-1.5 text-sm font-semibold',
+                        'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
                         chartTab === 'pnl'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
@@ -290,7 +343,7 @@ export default function App() {
                       type="button"
                       onClick={() => setChartTab('realisedPnl')}
                       className={[
-                        'rounded-md px-3 py-1.5 text-sm font-semibold',
+                        'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
                         chartTab === 'realisedPnl'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
@@ -317,7 +370,9 @@ export default function App() {
                         <Tooltip
                           labelFormatter={(v) => formatDate(Number(v))}
                           formatter={(v) =>
-                            typeof v === 'number' ? `${v.toFixed(6)} BTC` : String(v)
+                            typeof v === 'number'
+                              ? `${v.toFixed(6)} ${displayUnit}`
+                              : String(v)
                           }
                           contentStyle={{
                             backgroundColor: '#ffffff',
@@ -353,7 +408,9 @@ export default function App() {
                         <Tooltip
                           labelFormatter={(v) => formatDate(Number(v))}
                           formatter={(v) =>
-                            typeof v === 'number' ? `${v.toFixed(6)} BTC` : String(v)
+                            typeof v === 'number'
+                              ? `${v.toFixed(6)} ${displayUnit}`
+                              : String(v)
                           }
                           contentStyle={{
                             backgroundColor: '#ffffff',
@@ -389,7 +446,9 @@ export default function App() {
                         <Tooltip
                           labelFormatter={(v) => formatDate(Number(v))}
                           formatter={(v) =>
-                            typeof v === 'number' ? `${v.toFixed(6)} BTC` : String(v)
+                            typeof v === 'number'
+                              ? `${v.toFixed(6)} ${displayUnit}`
+                              : String(v)
                           }
                           contentStyle={{
                             backgroundColor: '#ffffff',
@@ -426,29 +485,39 @@ export default function App() {
                       <span className="font-medium">
                         {loaded.model.totals.equityCurrent == null
                           ? '-'
-                          : formatBtcFixed(loaded.model.totals.equityCurrent, 4)}
+                          : formatAssetFixed(loaded.model.totals.equityCurrent, 4, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">
-                        Trade Volume (BTC Notional)
+                        Trade Volume ({displayUnit} Notional)
                       </span>
                       <span className="font-medium">
-                        {formatBtc(loaded.model.totals.tradeVolumeBtcNotional)}
+                        {formatAsset(loaded.model.totals.tradeVolumeBtcNotional, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Net Deposit</span>
-                      <span className="font-medium">{formatBtc(loaded.model.totals.netDeposit)}</span>
+                      <span className="font-medium">
+                        {formatAsset(loaded.model.totals.netDeposit, displayUnit)}
+                      </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Deposits</span>
-                      <span className="font-medium">{formatBtc(loaded.model.totals.deposits)}</span>
+                      <span className="font-medium">
+                        {formatAsset(loaded.model.totals.deposits, displayUnit)}
+                      </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Withdrawals</span>
                       <span className="font-medium">
-                        {formatBtc(loaded.model.totals.withdrawals)}
+                        {formatAsset(loaded.model.totals.withdrawals, displayUnit)}
+                      </span>
+                    </li>
+                    <li className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate text-zinc-600 dark:text-zinc-300">Net Transfers</span>
+                      <span className="font-medium">
+                        {formatAsset(loaded.model.totals.netTransfers, displayUnit)}
                       </span>
                     </li>
                   </ul>
@@ -461,39 +530,51 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setTableTab('trades')}
-                    className={[
-                      'rounded-md px-3 py-1.5 text-sm font-semibold',
-                      tableTab === 'trades'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
-                    ].join(' ')}
-                  >
-                    Recent trades
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTableTab('transfers')}
-                    className={[
-                      'rounded-md px-3 py-1.5 text-sm font-semibold',
-                      tableTab === 'transfers'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
-                    ].join(' ')}
-                  >
-                    Transfers
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setTableTab('realisedPnl')}
                     className={[
-                      'rounded-md px-3 py-1.5 text-sm font-semibold',
+                      'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
                       tableTab === 'realisedPnl'
                         ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                         : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
                     ].join(' ')}
                   >
                     Realised PnL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableTab('trades')}
+                    className={[
+                      'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
+                      tableTab === 'trades'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                    ].join(' ')}
+                  >
+                    Recent Trades
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableTab('negativeBalanceFees')}
+                    className={[
+                      'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
+                      tableTab === 'negativeBalanceFees'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                    ].join(' ')}
+                  >
+                    Negative Balance Fees
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableTab('transfers')}
+                    className={[
+                      'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
+                      tableTab === 'transfers'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                    ].join(' ')}
+                  >
+                    Transfers
                   </button>
                 </div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -527,10 +608,10 @@ export default function App() {
                             {r.price == null ? '-' : r.price}
                           </Td>
                           <Td className="whitespace-nowrap text-right">
-                            {r.cashFlow == null ? '-' : formatBtc(r.cashFlow)}
+                            {r.cashFlow == null ? '-' : formatAsset(r.cashFlow, displayUnit)}
                           </Td>
                           <Td className="whitespace-nowrap text-right">
-                            {r.feeCharged == null ? '-' : formatBtc(r.feeCharged)}
+                            {r.feeCharged == null ? '-' : formatAsset(r.feeCharged, displayUnit)}
                           </Td>
                         </tr>
                       ))}
@@ -541,32 +622,105 @@ export default function App() {
                     <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
-                        <Th>Type</Th>
-                        <Th className="text-right">Cash flow</Th>
+                        <Th>IN/OUT</Th>
                         <Th className="text-right">Change</Th>
-                        <Th className="text-right">Balance</Th>
-                        <Th className="text-right">Equity</Th>
-                        <Th>Note</Th>
+                        <Th className="text-right">Resulting Equity</Th>
+                        <Th>Info</Th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                       {loaded.model.tables.transfers.slice(0, 50).map((r) => (
                         <tr key={`${r.t}-${r.type}-${r.note ?? ''}-${r.info ?? ''}`}>
                           <Td className="whitespace-nowrap">{formatDateTime(r.t)}</Td>
-                          <Td className="whitespace-nowrap">{r.type}</Td>
-                          <Td className="whitespace-nowrap text-right">
-                            {r.cashFlow == null ? '-' : formatBtc(r.cashFlow)}
+                          <Td className="whitespace-nowrap">
+                            {typeof r.change === 'number' && Number.isFinite(r.change) && r.change > 0
+                              ? 'IN'
+                              : 'OUT'}
                           </Td>
                           <Td className="whitespace-nowrap text-right">
-                            {r.change == null ? '-' : formatBtc(r.change)}
+                            {r.change == null ? '-' : formatAsset(r.change, displayUnit)}
                           </Td>
                           <Td className="whitespace-nowrap text-right">
-                            {r.balance == null ? '-' : formatBtc(r.balance)}
+                            {r.equity == null ? '-' : formatAsset(r.equity, displayUnit)}
+                          </Td>
+                          <Td className="max-w-[28rem] truncate">
+                            {(() => {
+                              const s = (r.info ?? '').trim()
+                              if (!s) return '-'
+                              const idx = s.indexOf('.')
+                              return (idx >= 0 ? s.slice(0, idx) : s).trim()
+                            })()}
+                          </Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : tableTab === 'realisedPnl' ? (
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
+                      <tr>
+                        <Th>Date</Th>
+                        <Th>Side</Th>
+                        <Th>Instrument</Th>
+                        <Th className="text-right">Amount</Th>
+                        <Th className="text-right">Realised PnL</Th>
+                        <Th className="text-right">ROI%</Th>
+                        <Th className="text-right">Closing Index Price</Th>
+                        <Th className="text-right">Fee</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                      {loaded.model.tables.realisedPnl.slice(0, 50).map((r) => (
+                        <tr key={`${r.t}-${r.instrument}-${r.amount}`}>
+                          <Td className="whitespace-nowrap">{formatDateTime(r.t)}</Td>
+                          <Td className="whitespace-nowrap">
+                            <span
+                              style={
+                                r.side === 'BUY'
+                                  ? { color: '#21AC77' }
+                                  : r.side === 'SELL'
+                                    ? { color: '#E34951' }
+                                    : undefined
+                              }
+                            >
+                              {r.side ?? '-'}
+                            </span>
+                          </Td>
+                          <Td className="whitespace-nowrap">{r.instrument}</Td>
+                          <Td className="whitespace-nowrap text-right">{formatQty(r.amount)}</Td>
+                          <Td className="whitespace-nowrap text-right">
+                            <span
+                              style={
+                                typeof r.realisedPnl === 'number' && Number.isFinite(r.realisedPnl) && r.realisedPnl !== 0
+                                  ? { color: r.realisedPnl > 0 ? '#21AC77' : '#E34951' }
+                                  : undefined
+                              }
+                            >
+                              {formatAsset(r.realisedPnl, displayUnit)}
+                            </span>
                           </Td>
                           <Td className="whitespace-nowrap text-right">
-                            {r.equity == null ? '-' : formatBtc(r.equity)}
+                            <span
+                              style={
+                                r.roi == null || !Number.isFinite(r.roi) || r.roi === 0
+                                  ? undefined
+                                  : { color: r.roi > 0 ? '#21AC77' : '#E34951' }
+                              }
+                            >
+                              {r.roi == null ? '-' : `${(r.roi * 100).toFixed(2)}%`}
+                            </span>
                           </Td>
-                          <Td className="max-w-[36rem] truncate">{r.note ?? r.info ?? '-'}</Td>
+                          <Td className="whitespace-nowrap text-right">
+                            {r.closingIndexPrice == null
+                              ? '-'
+                              : new Intl.NumberFormat(undefined, {
+                                  maximumFractionDigits: 2,
+                                  minimumFractionDigits: 2,
+                                }).format(r.closingIndexPrice)}
+                          </Td>
+                          <Td className="whitespace-nowrap text-right">
+                            {formatAsset(r.fee, displayUnit)}
+                          </Td>
                         </tr>
                       ))}
                     </tbody>
@@ -576,20 +730,20 @@ export default function App() {
                     <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
-                        <Th>Instrument</Th>
-                        <Th className="text-right">Amount</Th>
-                        <Th className="text-right">Realised PnL</Th>
-                        <Th className="text-right">Fee</Th>
+                        <Th className="text-right">Fee Charged</Th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                      {loaded.model.tables.realisedPnl.slice(0, 50).map((r) => (
-                        <tr key={`${r.t}-${r.instrument}-${r.amount}`}>
+                      {loaded.model.tables.negativeBalanceFees.slice(0, 50).map((r) => (
+                        <tr key={`${r.t}-${r.feeCharged ?? ''}`}>
                           <Td className="whitespace-nowrap">{formatDateTime(r.t)}</Td>
-                          <Td className="whitespace-nowrap">{r.instrument}</Td>
-                          <Td className="whitespace-nowrap text-right">{r.amount}</Td>
-                          <Td className="whitespace-nowrap text-right">{formatBtc(r.realisedPnl)}</Td>
-                          <Td className="whitespace-nowrap text-right">{formatBtc(r.fee)}</Td>
+                          <Td className="whitespace-nowrap text-right">
+                            {r.feeChargedText != null
+                              ? `${r.feeChargedText} ${displayUnit}`
+                              : r.feeCharged == null
+                                ? '-'
+                                : `${String(r.feeCharged)} ${displayUnit}`}
+                          </Td>
                         </tr>
                       ))}
                     </tbody>
@@ -634,13 +788,424 @@ function Panel(props: { title: string; children: React.ReactNode; className?: st
   )
 }
 
-function StatCard(props: { label: string; value: string }) {
+function formatQty(n: number): string {
+  // Avoid floating point artifacts like 0.30000000000000004 in table output.
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 10,
+    minimumFractionDigits: 0,
+    useGrouping: false,
+  }).format(n)
+}
+
+function StatCard(props: {
+  label: string
+  value: string
+  valueNumber?: number | null
+  actionLabel?: string
+  onAction?: () => void
+}) {
+  const n = props.valueNumber
+  const color =
+    typeof n === 'number' && Number.isFinite(n) ? (n > 0 ? '#21AC77' : n < 0 ? '#E34951' : null) : null
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        {props.label}
+      <div className="flex h-7 items-center justify-between gap-3">
+        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          {props.label}
+        </div>
+        {props.onAction ? (
+          <button
+            type="button"
+            className="flex h-6 items-center cursor-pointer rounded-md border border-zinc-800 bg-zinc-950/40 px-2 text-[11px] font-semibold leading-none text-zinc-100 hover:bg-zinc-800/40"
+            onClick={props.onAction}
+            title={props.actionLabel ?? 'Open'}
+          >
+            {props.actionLabel ?? 'Open'}
+          </button>
+        ) : null}
       </div>
-      <div className="mt-1 text-lg font-semibold tabular-nums">{props.value}</div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums" style={color ? { color } : undefined}>
+        {props.value}
+      </div>
+    </div>
+  )
+}
+
+function monthName(y: number, m: number): string {
+  const d = new Date(Date.UTC(y, m - 1, 1, 12, 0, 0))
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(d)
+}
+
+function sgtDayKeyFromYmd(y: number, m: number, d: number): string {
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+function fmtPnlCell(pnl: number): string {
+  // Calendar spec: fixed 4 decimals.
+  return new Intl.NumberFormat(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pnl)
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '').trim()
+  if (h.length !== 6) return `rgba(0,0,0,${alpha})`
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function PnlCalendarModal(props: {
+  displayUnit: string
+  month: { y: number; m: number }
+  onChangeMonth: (m: { y: number; m: number }) => void
+  valueByDayKey: Map<string, number>
+  minT: number | null
+  maxT: number | null
+  onClose: () => void
+}) {
+  const { y, m } = props.month
+  const first = new Date(Date.UTC(y, m - 1, 1, 12, 0, 0))
+  const daysInMonth = new Date(Date.UTC(y, m, 0, 12, 0, 0)).getUTCDate()
+  // Week starts Monday (1) to Sunday (7).
+  const firstDow = ((first.getUTCDay() + 6) % 7) + 1
+  const padBefore = firstDow - 1
+  const weekRows = Math.ceil((padBefore + daysInMonth) / 7)
+  const cellW = 80
+
+  const clampMonthFromT = (t: number | null): { y: number; m: number } | null => {
+    if (t == null || !Number.isFinite(t)) return null
+    const d = new Date(t + 8 * 60 * 60 * 1000) // SGT
+    return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }
+  }
+  const minMonth = clampMonthFromT(props.minT)
+  const maxMonth = clampMonthFromT(props.maxT)
+  const monthKey = (x: { y: number; m: number }) => x.y * 100 + x.m
+  const curKey = monthKey({ y, m })
+  const canPrev = minMonth ? curKey > monthKey(minMonth) : true
+  const canNext = maxMonth ? curKey < monthKey(maxMonth) : true
+
+  const [calMode, setCalMode] = useState<'month' | 'year'>('month')
+  const [yearModeYear, setYearModeYear] = useState<number>(y)
+  const [lastMonthInYearMode, setLastMonthInYearMode] = useState<number>(m)
+
+  useEffect(() => {
+    // Keep year picker aligned to current month view.
+    if (calMode === 'month') {
+      setYearModeYear(y)
+      setLastMonthInYearMode(m)
+    }
+  }, [calMode, y, m])
+
+  const clampMonthToBounds = (target: { y: number; m: number }): { y: number; m: number } => {
+    let k = monthKey(target)
+    if (minMonth) k = Math.max(k, monthKey(minMonth))
+    if (maxMonth) k = Math.min(k, monthKey(maxMonth))
+    return { y: Math.floor(k / 100), m: k % 100 }
+  }
+
+  const monthTotal = useMemo(() => {
+    let s = 0
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = sgtDayKeyFromYmd(y, m, d)
+      s += props.valueByDayKey.get(key) ?? 0
+    }
+    return s
+  }, [props.valueByDayKey, y, m, daysInMonth])
+
+  const monthTotalText = useMemo(() => {
+    const n = monthTotal
+    if (!Number.isFinite(n)) return '-'
+    const fmt = fmtPnlCell(n)
+    const sign = n > 0 ? '+' : ''
+    return `${sign}${fmt} ${props.displayUnit}`
+  }, [monthTotal, props.displayUnit])
+
+  const monthTotalTone =
+    !Number.isFinite(monthTotal) || monthTotal === 0 ? undefined : monthTotal > 0 ? '#21AC77' : '#E34951'
+
+  const yearTotals = useMemo(() => {
+    const monthToTotal = new Map<number, number>()
+    for (const [key, v] of props.valueByDayKey.entries()) {
+      // key is YYYY-MM-DD in SGT
+      if (key.length < 7) continue
+      const yy = Number(key.slice(0, 4))
+      const mm = Number(key.slice(5, 7))
+      if (!Number.isFinite(yy) || !Number.isFinite(mm)) continue
+      if (yy !== yearModeYear) continue
+      monthToTotal.set(mm, (monthToTotal.get(mm) ?? 0) + v)
+    }
+    let yearTotal = 0
+    for (const v of monthToTotal.values()) yearTotal += v
+    return { monthToTotal, yearTotal }
+  }, [props.valueByDayKey, yearModeYear])
+
+  const yearTotalText = useMemo(() => {
+    const n = yearTotals.yearTotal
+    if (!Number.isFinite(n)) return '-'
+    const fmt = fmtPnlCell(n)
+    const sign = n > 0 ? '+' : ''
+    return `${sign}${fmt} ${props.displayUnit}`
+  }, [yearTotals.yearTotal, props.displayUnit])
+
+  const yearTotalTone =
+    !Number.isFinite(yearTotals.yearTotal) || yearTotals.yearTotal === 0
+      ? undefined
+      : yearTotals.yearTotal > 0
+        ? '#21AC77'
+        : '#E34951'
+
+  const prev = () => {
+    if (calMode === 'month') {
+      if (!canPrev) return
+      const nm = m - 1
+      props.onChangeMonth(nm <= 0 ? { y: y - 1, m: 12 } : { y, m: nm })
+    } else {
+      const minY = minMonth?.y ?? -Infinity
+      if (yearModeYear <= minY) return
+      setYearModeYear((v) => v - 1)
+    }
+  }
+  const next = () => {
+    if (calMode === 'month') {
+      if (!canNext) return
+      const nm = m + 1
+      props.onChangeMonth(nm >= 13 ? { y: y + 1, m: 1 } : { y, m: nm })
+    } else {
+      const maxY = maxMonth?.y ?? Infinity
+      if (yearModeYear >= maxY) return
+      setYearModeYear((v) => v + 1)
+    }
+  }
+
+  const canPrevBtn =
+    calMode === 'month' ? canPrev : yearModeYear > (minMonth?.y ?? -Infinity)
+  const canNextBtn =
+    calMode === 'month' ? canNext : yearModeYear < (maxMonth?.y ?? Infinity)
+
+  const monthLabel = monthName(y, m)
+  const yearLabel = String(yearModeYear)
+
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-pointer bg-black/60"
+        onClick={props.onClose}
+        aria-label="Close PNL calendar"
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+        <div className="pointer-events-auto h-[620px] w-[640px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-100">Realised PnL Calendar</div>
+              <div className="mt-0.5 text-xs text-zinc-400"> </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {calMode === 'month' ? (
+                <div
+                  className="mr-1 text-sm font-semibold tabular-nums"
+                  style={monthTotalTone ? { color: monthTotalTone } : undefined}
+                  title="Total realised PnL for displayed month"
+                >
+                  {monthTotalText}
+                </div>
+              ) : (
+                <div
+                  className="mr-1 text-sm font-semibold tabular-nums"
+                  style={yearTotalTone ? { color: yearTotalTone } : undefined}
+                  title="Total realised PnL for displayed year"
+                >
+                  {yearTotalText}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!canPrevBtn}
+                className={[
+                  'rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm font-semibold text-zinc-100',
+                  canPrevBtn ? 'cursor-pointer hover:bg-zinc-800' : 'cursor-default opacity-50',
+                ].join(' ')}
+                onClick={prev}
+                title={calMode === 'month' ? 'Previous month' : 'Previous year'}
+              >
+                ‹
+              </button>
+              {calMode === 'month' ? (
+                <button
+                  type="button"
+                  className="min-w-[140px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
+                  title="Switch to year view"
+                  onClick={() => {
+                    setYearModeYear(y)
+                    setLastMonthInYearMode(m)
+                    setCalMode('year')
+                  }}
+                >
+                  {monthLabel}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="min-w-[140px] cursor-pointer text-center text-xs font-semibold text-zinc-300 hover:text-zinc-100"
+                  title="Back to month view"
+                  onClick={() => {
+                    const target = clampMonthToBounds({ y: yearModeYear, m: lastMonthInYearMode })
+                    props.onChangeMonth(target)
+                    setCalMode('month')
+                  }}
+                >
+                  {yearLabel}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={!canNextBtn}
+                className={[
+                  'rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm font-semibold text-zinc-100',
+                  canNextBtn ? 'cursor-pointer hover:bg-zinc-800' : 'cursor-default opacity-50',
+                ].join(' ')}
+                onClick={next}
+                title={calMode === 'month' ? 'Next month' : 'Next year'}
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="cursor-pointer rounded border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                onClick={props.onClose}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          {calMode === 'month' ? (
+            <div className="mt-4 flex h-[calc(100%-56px)] flex-col">
+              <div className="grid grid-cols-7 gap-2 text-xs">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                  <div key={d} className="px-2 py-1 text-zinc-400">
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-2 flex-1">
+                <div
+                  className="grid h-full gap-2 text-xs"
+                  style={{
+                    gridTemplateColumns: `repeat(7, ${cellW}px)`,
+                    gridTemplateRows: `repeat(${weekRows}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {Array.from({ length: padBefore }).map((_, i) => (
+                    <div key={`pad-${i}`} />
+                  ))}
+
+                  {Array.from({ length: daysInMonth }).map((_, idx) => {
+                    const day = idx + 1
+                    const key = sgtDayKeyFromYmd(y, m, day)
+                    const pnl = props.valueByDayKey.get(key) ?? null
+                    const tone =
+                      pnl == null || !Number.isFinite(pnl)
+                        ? null
+                        : pnl > 0
+                          ? '#21AC77'
+                          : pnl < 0
+                            ? '#E34951'
+                            : null
+
+                    return (
+                      <div
+                        key={key}
+                        className="relative overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/60 p-2"
+                        style={{
+                          width: `${cellW}px`,
+                          backgroundImage: tone
+                            ? `linear-gradient(${hexToRgba(tone, 0.1)}, ${hexToRgba(tone, 0.1)})`
+                            : undefined,
+                        }}
+                      >
+                        <div className="absolute left-2 top-2 text-[11px] font-semibold text-zinc-300">
+                          {day}
+                        </div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div
+                            className="text-sm font-semibold tabular-nums"
+                            style={tone ? { color: tone } : undefined}
+                          >
+                            {pnl == null || !Number.isFinite(pnl) ? '-' : fmtPnlCell(pnl)}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 flex h-[calc(100%-56px)] flex-col">
+              <div
+                className="grid grid-cols-4 gap-2"
+              >
+                {[
+                  'Jan',
+                  'Feb',
+                  'Mar',
+                  'Apr',
+                  'May',
+                  'Jun',
+                  'Jul',
+                  'Aug',
+                  'Sep',
+                  'Oct',
+                  'Nov',
+                  'Dec',
+                ].map((label, idx) => {
+                  const mm = idx + 1
+                  const k = monthKey({ y: yearModeYear, m: mm })
+                  const enabled =
+                    (!minMonth || k >= monthKey(minMonth)) && (!maxMonth || k <= monthKey(maxMonth))
+                  const total = yearTotals.monthToTotal.get(mm) ?? 0
+                  const has = enabled && Math.abs(total) > 1e-15 && Number.isFinite(total)
+                  const tone = !has ? undefined : total > 0 ? '#21AC77' : '#E34951'
+                  const totalText = has ? fmtPnlCell(total) : '-'
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      disabled={!enabled}
+                      className={[
+                        'relative aspect-square w-full rounded-lg border border-zinc-800 bg-zinc-900/60 p-2 text-left text-xs font-semibold text-zinc-200',
+                        enabled ? 'cursor-pointer hover:bg-zinc-800/60' : 'cursor-default opacity-40',
+                      ].join(' ')}
+                      style={{
+                        backgroundImage: tone
+                          ? `linear-gradient(${hexToRgba(tone, 0.1)}, ${hexToRgba(tone, 0.1)})`
+                          : undefined,
+                      }}
+                      onClick={() => {
+                        if (!enabled) return
+                        props.onChangeMonth({ y: yearModeYear, m: mm })
+                        setCalMode('month')
+                      }}
+                    >
+                      <div className="absolute left-2 top-2">{label}</div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div
+                          className="text-sm font-semibold tabular-nums"
+                          style={tone ? { color: tone } : undefined}
+                        >
+                          {totalText}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -674,15 +1239,17 @@ function HoverPopover(props: { label: string; children: React.ReactNode }) {
     <div className="group relative">
       <button
         type="button"
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        className="cursor-pointer rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
       >
         {props.label}
       </button>
-      <div className="invisible absolute right-0 top-full z-50 mt-2 w-[28rem] max-w-[calc(100vw-2rem)] translate-y-1 rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-lg opacity-0 transition-all group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      <div
+        className="invisible absolute right-0 top-full z-50 mt-2 w-[28rem] max-w-[calc(100vw-2rem)] translate-y-1 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-left shadow-lg backdrop-blur-none transition-all group-hover:visible group-hover:translate-y-0"
+      >
+        <div className="text-xs font-medium uppercase tracking-wide text-zinc-300">
           Hover definitions
         </div>
-        <div className="mt-3 text-zinc-900 dark:text-zinc-100">{props.children}</div>
+        <div className="mt-3 text-zinc-100">{props.children}</div>
       </div>
     </div>
   )

@@ -41,7 +41,7 @@ export function generateStandaloneHtml(args: {
       .container { max-width: 1120px; margin: 0 auto; padding: 22px 16px 28px; }
       .title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; margin: 0; }
       .subtitle { margin: 8px 0 0; color: #a1a1aa; font-size: 13px; }
-      .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+      .grid3 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
       .card {
         border: 1px solid #27272a;
         background: #18181b;
@@ -99,6 +99,10 @@ export function generateStandaloneHtml(args: {
           <p class="label">FEES (TOTAL)</p>
           <p class="value" id="feesTotal">-</p>
         </div>
+        <div class="card">
+          <p class="label">PERIOD</p>
+          <p class="value" id="period">-</p>
+        </div>
       </div>
 
       <div class="layout2">
@@ -117,7 +121,7 @@ export function generateStandaloneHtml(args: {
               <span class="muted">Equity</span><span id="eqSummary" style="font-weight:700;">-</span>
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
-              <span class="muted">Trade Volume (BTC Notional)</span><span id="volSummary" style="font-weight:700;">-</span>
+              <span class="muted" id="volNotionalLabel">Trade Volume (BTC Notional)</span><span id="volSummary" style="font-weight:700;">-</span>
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
               <span class="muted">Net Deposit</span><span id="netDepSummary" style="font-weight:700;">-</span>
@@ -127,6 +131,9 @@ export function generateStandaloneHtml(args: {
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
               <span class="muted">Withdrawals</span><span id="wdSummary" style="font-weight:700;">-</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
+              <span class="muted">Net Transfers</span><span id="netXferSummary" style="font-weight:700;">-</span>
             </div>
           </div>
         </div>
@@ -152,28 +159,78 @@ export function generateStandaloneHtml(args: {
       const srcName = ${JSON.stringify(args.sourceFileName)};
 
       const SGT = 'Asia/Singapore';
+      const DU = model.meta && model.meta.displayUnit ? model.meta.displayUnit : 'BTC';
       const fmtInt = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n);
-      const fmtBtc = (n, min=2, max=8) => new Intl.NumberFormat(undefined, { maximumFractionDigits: max, minimumFractionDigits: min }).format(n) + ' BTC';
-      const fmtBtc4 = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 4 }).format(n) + ' BTC';
-      const fmtDate = (ms) => new Intl.DateTimeFormat(undefined, { timeZone: SGT, year:'2-digit', month:'2-digit', day:'2-digit' }).format(new Date(ms));
-      const fmtDateTime = (ms) => new Intl.DateTimeFormat(undefined, { timeZone: SGT, year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).format(new Date(ms));
+      const fmtAmt = (n, min=2, max=8) => new Intl.NumberFormat(undefined, { maximumFractionDigits: max, minimumFractionDigits: min }).format(n) + ' ' + DU;
+      const fmtAmt4 = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 4 }).format(n) + ' ' + DU;
+      const fmtQty = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 10, minimumFractionDigits: 0, useGrouping: false }).format(n);
+      const fmtDate = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: SGT, day:'2-digit', month:'2-digit', year:'2-digit' }).format(new Date(ms));
+      const fmtDateTime = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: SGT, year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).format(new Date(ms));
       const sgtDateKey = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: SGT });
+      const periodYmd = (fromMs, toMs) => {
+        if (fromMs == null || toMs == null) return '-';
+        const a = Math.min(fromMs, toMs);
+        const b = Math.max(fromMs, toMs);
+        const sgtYmd = (ms) => {
+          const d = new Date(ms + 8 * 60 * 60 * 1000);
+          return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+        };
+        const daysInMonth = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+        const unit = (n, singular, plural) => (n === 1 ? singular : plural);
+        const start = sgtYmd(a);
+        const end = sgtYmd(b);
+        let y = end.y - start.y;
+        let m = end.m - start.m;
+        let d = end.d - start.d;
+        if (d < 0) {
+          m -= 1;
+          const prevMonth = end.m - 1 <= 0 ? 12 : end.m - 1;
+          const prevYear = end.m - 1 <= 0 ? end.y - 1 : end.y;
+          d += daysInMonth(prevYear, prevMonth);
+        }
+        if (m < 0) { y -= 1; m += 12; }
+        const parts = [];
+        if (y > 0) parts.push(y + ' ' + unit(y, 'Year', 'Years'));
+        if (y > 0) {
+          if (!(m === 0 && d !== 0)) parts.push(m + ' ' + unit(m, 'Month', 'Months'));
+        } else if (m > 0) {
+          parts.push(m + ' ' + unit(m, 'Month', 'Months'));
+        }
+        parts.push(d + ' ' + unit(d, 'Day', 'Days'));
+        return parts.join(' ');
+      };
 
       document.getElementById('srcName').textContent = srcName;
       document.getElementById('csvName').textContent = srcName;
       document.getElementById('genAt').textContent = fmtDateTime(model.meta.generatedAt);
+      const volLab = document.getElementById('volNotionalLabel');
+      if (volLab) volLab.textContent = 'Trade Volume (' + DU + ' Notional)';
 
       document.getElementById('pnlCurrent').textContent =
-        model.totals.pnlCurrent == null ? '-' : fmtBtc4(model.totals.pnlCurrent);
-      document.getElementById('realisedTotal').textContent = fmtBtc4(model.totals.realisedPnl);
-      document.getElementById('feesTotal').textContent = fmtBtc(model.totals.feeCharged);
+        model.totals.pnlCurrent == null ? '-' : fmtAmt4(model.totals.pnlCurrent);
+      document.getElementById('realisedTotal').textContent = fmtAmt4(model.totals.realisedPnl);
+      document.getElementById('feesTotal').textContent = fmtAmt(model.totals.feeCharged);
+      document.getElementById('period').textContent = periodYmd(model.meta.from, model.meta.to);
+      const setTone = (id, n) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (typeof n !== 'number' || !Number.isFinite(n) || n === 0) { el.style.color = ''; return; }
+        el.style.color = n > 0 ? '#21AC77' : '#E34951';
+      };
+      setTone('pnlCurrent', model.totals.pnlCurrent);
+      setTone('realisedTotal', model.totals.realisedPnl);
 
       document.getElementById('eqSummary').textContent =
-        model.totals.equityCurrent == null ? '-' : fmtBtc4(model.totals.equityCurrent);
-      document.getElementById('volSummary').textContent = fmtBtc(model.totals.tradeVolumeBtcNotional, 2, 2);
-      document.getElementById('netDepSummary').textContent = fmtBtc(model.totals.netDeposit);
-      document.getElementById('depSummary').textContent = fmtBtc(model.totals.deposits);
-      document.getElementById('wdSummary').textContent = fmtBtc(model.totals.withdrawals);
+        model.totals.equityCurrent == null ? '-' : fmtAmt4(model.totals.equityCurrent);
+      document.getElementById('volSummary').textContent = fmtAmt(model.totals.tradeVolumeBtcNotional, 2, 2);
+      document.getElementById('netDepSummary').textContent = fmtAmt(model.totals.netDeposit);
+      // Back-compat: older exports won't have this field.
+      if (document.getElementById('netXferSummary')) {
+        const nx = (model.totals && typeof model.totals.netTransfers === 'number') ? model.totals.netTransfers : 0;
+        document.getElementById('netXferSummary').textContent = fmtAmt(nx);
+      }
+      document.getElementById('depSummary').textContent = fmtAmt(model.totals.deposits);
+      document.getElementById('wdSummary').textContent = fmtAmt(model.totals.withdrawals);
 
       // Tables
       let activeTable = 'trades';
@@ -203,18 +260,18 @@ export function generateStandaloneHtml(args: {
           tr.appendChild(td(r.side ?? '-'));
           tr.appendChild(td(r.amount == null ? '-' : String(r.amount), 'right'));
           tr.appendChild(td(r.price == null ? '-' : String(r.price), 'right'));
-          tr.appendChild(td(r.cashFlow == null ? '-' : fmtBtc(r.cashFlow), 'right'));
-          tr.appendChild(td(r.feeCharged == null ? '-' : fmtBtc(r.feeCharged), 'right'));
+          tr.appendChild(td(r.cashFlow == null ? '-' : fmtAmt(r.cashFlow), 'right'));
+          tr.appendChild(td(r.feeCharged == null ? '-' : fmtAmt(r.feeCharged), 'right'));
           body.appendChild(tr);
         }
       }
 
       function renderTransfers() {
         setHead(\`<tr>
-          <th>Date</th><th>Type</th>
-          <th class="right">Cash flow</th><th class="right">Change</th>
-          <th class="right">Balance</th><th class="right">Equity</th>
-          <th>Note</th>
+          <th>Date</th>
+          <th>IN/OUT</th><th class="right">Change</th>
+          <th class="right">Resulting Equity</th>
+          <th>Info</th>
         </tr>\`);
         clearBody();
         for (const r of (model.tables.transfers || []).slice(0, 50)) {
@@ -226,23 +283,27 @@ export function generateStandaloneHtml(args: {
             return el;
           };
           tr.appendChild(td(fmtDateTime(r.t)));
-          tr.appendChild(td(r.type));
-          tr.appendChild(td(r.cashFlow == null ? '-' : fmtBtc(r.cashFlow), 'right'));
-          tr.appendChild(td(r.change == null ? '-' : fmtBtc(r.change), 'right'));
-          tr.appendChild(td(r.balance == null ? '-' : fmtBtc(r.balance), 'right'));
-          tr.appendChild(td(r.equity == null ? '-' : fmtBtc(r.equity), 'right'));
-          const n = document.createElement('td');
-          n.className = 'truncate';
-          n.textContent = r.note ?? r.info ?? '-';
-          tr.appendChild(n);
+          tr.appendChild(
+            td(typeof r.change === 'number' && Number.isFinite(r.change) && r.change > 0 ? 'IN' : 'OUT'),
+          );
+          tr.appendChild(td(r.change == null ? '-' : fmtAmt(r.change), 'right'));
+          tr.appendChild(td(r.equity == null ? '-' : fmtAmt(r.equity), 'right'));
+          const info = document.createElement('td');
+          info.className = 'truncate';
+          {
+            const s = String(r.info ?? '').trim();
+            const idx = s.indexOf('.');
+            info.textContent = s ? (idx >= 0 ? s.slice(0, idx) : s).trim() : '-';
+          }
+          tr.appendChild(info);
           body.appendChild(tr);
         }
       }
 
       function renderRealised() {
         setHead(\`<tr>
-          <th>Date</th><th>Instrument</th><th class="right">Amount</th>
-          <th class="right">Realised PnL</th><th class="right">Fee</th>
+          <th>Date</th><th>Side</th><th>Instrument</th><th class="right">Amount</th>
+          <th class="right">Realised PnL</th><th class="right">ROI%</th><th class="right">Closing Index Price</th><th class="right">Fee</th>
         </tr>\`);
         clearBody();
         for (const r of (model.tables.realisedPnl || []).slice(0, 50)) {
@@ -254,10 +315,62 @@ export function generateStandaloneHtml(args: {
             return el;
           };
           tr.appendChild(td(fmtDateTime(r.t)));
+          {
+            const sideTd = td(r.side || '-');
+            if (r.side === 'BUY') sideTd.style.color = '#21AC77';
+            else if (r.side === 'SELL') sideTd.style.color = '#E34951';
+            tr.appendChild(sideTd);
+          }
           tr.appendChild(td(r.instrument));
-          tr.appendChild(td(String(r.amount), 'right'));
-          tr.appendChild(td(fmtBtc(r.realisedPnl), 'right'));
-          tr.appendChild(td(fmtBtc(r.fee), 'right'));
+          tr.appendChild(td(fmtQty(r.amount), 'right'));
+          {
+            const pnlTd = td(fmtAmt(r.realisedPnl), 'right');
+            if (typeof r.realisedPnl === 'number' && Number.isFinite(r.realisedPnl) && r.realisedPnl !== 0) {
+              pnlTd.style.color = r.realisedPnl > 0 ? '#21AC77' : '#E34951';
+            }
+            tr.appendChild(pnlTd);
+          }
+          {
+            const roiTd = td(
+              r.roi == null || !Number.isFinite(r.roi) ? '-' : String((r.roi * 100).toFixed(2)) + '%',
+              'right',
+            );
+            if (typeof r.roi === 'number' && Number.isFinite(r.roi) && r.roi !== 0) {
+              roiTd.style.color = r.roi > 0 ? '#21AC77' : '#E34951';
+            }
+            tr.appendChild(roiTd);
+          }
+          tr.appendChild(
+            td(
+              r.closingIndexPrice == null || !Number.isFinite(r.closingIndexPrice)
+                ? '-'
+                : new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(
+                    r.closingIndexPrice,
+                  ),
+              'right',
+            ),
+          );
+          tr.appendChild(td(fmtAmt(r.fee), 'right'));
+          body.appendChild(tr);
+        }
+      }
+
+      function renderNegBalFees() {
+        setHead(\`<tr>
+          <th>Date</th><th class="right">Fee Charged</th>
+        </tr>\`);
+        clearBody();
+        for (const r of (model.tables.negativeBalanceFees || []).slice(0, 50)) {
+          const tr = document.createElement('tr');
+          const td = (t, cls) => {
+            const el = document.createElement('td');
+            if (cls) el.className = cls;
+            el.textContent = t;
+            return el;
+          };
+          tr.appendChild(td(fmtDateTime(r.t)));
+          const txt = (r.feeChargedText || '').trim();
+          tr.appendChild(td(txt ? (txt + ' ' + DU) : (r.feeCharged == null ? '-' : (String(r.feeCharged) + ' ' + DU)), 'right'));
           body.appendChild(tr);
         }
       }
@@ -265,7 +378,8 @@ export function generateStandaloneHtml(args: {
       function renderTable() {
         if (activeTable === 'trades') renderTrades();
         else if (activeTable === 'transfers') renderTransfers();
-        else renderRealised();
+        else if (activeTable === 'realisedPnl') renderRealised();
+        else renderNegBalFees();
       }
 
       function renderTableTabs() {
@@ -283,9 +397,10 @@ export function generateStandaloneHtml(args: {
           };
           root.appendChild(b);
         };
-        mk('trades', 'Recent trades');
-        mk('transfers', 'Transfers');
         mk('realisedPnl', 'Realised PnL');
+        mk('negativeBalanceFees', 'Negative Balance Fees');
+        mk('trades', 'Recent Trades');
+        mk('transfers', 'Transfers');
       }
 
       renderTableTabs();
@@ -364,7 +479,7 @@ export function generateStandaloneHtml(args: {
             const name = ctx.dataset.label || '';
             const y = ctx.parsed.y;
             const yStr =
-              y == null || !Number.isFinite(y) ? '-' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 6, minimumFractionDigits: 2 }).format(y) + ' BTC';
+              y == null || !Number.isFinite(y) ? '-' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 6, minimumFractionDigits: 2 }).format(y) + ' ' + DU;
             return name ? name + ': ' + yStr : yStr;
           },
         },
