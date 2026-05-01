@@ -31,6 +31,7 @@ export function generateStandaloneHtml(args: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${escapeHtml(args.title)}</title>
     <style>
+      *, *::before, *::after { box-sizing: border-box; }
       :root { color-scheme: dark; }
       body {
         margin: 0;
@@ -48,6 +49,21 @@ export function generateStandaloneHtml(args: {
         border-radius: 14px;
         padding: 14px;
       }
+      .kpiHead { display:flex; align-items:center; justify-content:space-between; gap: 10px; min-height: 28px; }
+      .kpiBtn {
+        display:flex;
+        align-items:center;
+        height: 24px;
+        border: 1px solid #27272a;
+        background: rgba(9,9,11,0.45);
+        color: #f4f4f5;
+        border-radius: 8px;
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .kpiBtn:hover { background: rgba(39,39,42,0.55); }
       .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin: 0 0 6px; }
       .value { font-size: 18px; font-weight: 700; margin: 0; font-variant-numeric: tabular-nums; }
       .layout2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 12px; align-items: stretch; }
@@ -75,6 +91,106 @@ export function generateStandaloneHtml(args: {
       th { text-align: left; font-size: 12px; color: #a1a1aa; background: rgba(255,255,255,0.03); }
       .right { text-align: right; }
       .truncate { max-width: 520px; overflow: hidden; text-overflow: ellipsis; }
+
+      /* PnL calendar modal */
+      .modalOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .modalOverlay.open { display: flex; }
+      .modalBg {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.60);
+      }
+      .modalPanel {
+        position: relative;
+        width: 640px;
+        height: 620px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 32px);
+        border: 1px solid #27272a;
+        background: #09090b;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+      }
+      .modalTop { display:flex; align-items:center; justify-content:space-between; gap: 12px; }
+      .modalTitle { font-size: 14px; font-weight: 800; margin: 0; }
+      .modalControls { display:flex; align-items:center; gap: 6px; }
+      .ctlBtn {
+        border: 1px solid #27272a;
+        background: #18181b;
+        color: #f4f4f5;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
+        line-height: 1;
+      }
+      .ctlBtn:hover { background: #27272a; }
+      .ctlBtn:disabled { opacity: 0.50; cursor: default; }
+      .monthLabelBtn {
+        min-width: 140px;
+        text-align: center;
+        border: 0;
+        background: transparent;
+        color: #d4d4d8;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .monthLabelBtn:hover { color: #f4f4f5; }
+      .closeBtn {
+        border: 1px solid #27272a;
+        background: #18181b;
+        color: #f4f4f5;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .closeBtn:hover { background: #27272a; }
+      .calBody { margin-top: 14px; height: calc(100% - 56px); display:flex; flex-direction: column; }
+      .dowRow { display:grid; grid-template-columns: repeat(7, 80px); gap: 8px; font-size: 12px; color: #a1a1aa; }
+      .dowCell { padding: 6px 8px; }
+      .dayGridWrap { margin-top: 8px; flex: 1; min-height: 0; }
+      .dayGrid { display:grid; height: 100%; gap: 8px; }
+      .tile {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid #27272a;
+        background: rgba(24,24,27,0.65);
+        border-radius: 10px;
+        padding: 8px;
+      }
+      .tileDay { position:absolute; left: 8px; top: 8px; font-size: 11px; font-weight: 800; color: #d4d4d8; }
+      .tileCenter { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+      .tileVal { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+      .yearGrid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; height: calc(100% - 48px); }
+      .monthTile {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        width: 100%;
+        border: 1px solid #27272a;
+        background: rgba(24,24,27,0.65);
+        border-radius: 10px;
+        padding: 8px;
+        text-align: left;
+        color: #e4e4e7;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .monthTile:hover { background: rgba(39,39,42,0.65); }
+      .monthTile:disabled { opacity: 0.40; cursor: default; }
     </style>
   </head>
   <body>
@@ -88,8 +204,11 @@ export function generateStandaloneHtml(args: {
 
       <div class="grid3">
         <div class="card">
-          <p class="label">PNL (CURRENT)</p>
-          <p class="value" id="pnlCurrent">-</p>
+          <div class="kpiHead">
+            <p class="label" style="margin:0;">PNL (CURRENT)</p>
+            <button type="button" class="kpiBtn" id="openPnlCal">PNL Calendar</button>
+          </div>
+          <p class="value" id="pnlCurrent" style="margin-top:2px;">-</p>
         </div>
         <div class="card">
           <p class="label">REALISED PNL (TOTAL)</p>
@@ -150,6 +269,25 @@ export function generateStandaloneHtml(args: {
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <div class="modalOverlay" id="pnlCalModal" aria-hidden="true">
+      <div class="modalBg" id="pnlCalBg"></div>
+      <div class="modalPanel" role="dialog" aria-modal="true" aria-label="Realised PnL Calendar">
+        <div class="modalTop">
+          <div>
+            <div class="modalTitle">Realised PnL Calendar</div>
+          </div>
+          <div class="modalControls">
+            <div id="pnlCalTotal" style="margin-right:6px; font-size:14px; font-weight:800; font-variant-numeric: tabular-nums;"></div>
+            <button type="button" class="ctlBtn" id="pnlCalPrev" title="Previous month">‹</button>
+            <button type="button" class="monthLabelBtn" id="pnlCalLabel" title="Switch to year view">-</button>
+            <button type="button" class="ctlBtn" id="pnlCalNext" title="Next month">›</button>
+            <button type="button" class="closeBtn" id="pnlCalClose">Close</button>
+          </div>
+        </div>
+        <div class="calBody" id="pnlCalBody"></div>
       </div>
     </div>
 
@@ -405,6 +543,326 @@ export function generateStandaloneHtml(args: {
 
       renderTableTabs();
       renderTable();
+
+      // PnL Calendar (standalone export)
+      const modal = document.getElementById('pnlCalModal');
+      const modalBg = document.getElementById('pnlCalBg');
+      const btnOpen = document.getElementById('openPnlCal');
+      const btnClose = document.getElementById('pnlCalClose');
+      const btnPrev = document.getElementById('pnlCalPrev');
+      const btnNext = document.getElementById('pnlCalNext');
+      const btnLabel = document.getElementById('pnlCalLabel');
+      const elTotal = document.getElementById('pnlCalTotal');
+      const elBody = document.getElementById('pnlCalBody');
+
+      const fmtPnlCell = (n) => new Intl.NumberFormat(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(n);
+      const monthName = (y, m) => new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(Date.UTC(y, m - 1, 1, 12, 0, 0)));
+      const ymdKey = (y, m, d) => String(y).padStart(4,'0') + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      const hexToRgba = (hex, alpha) => {
+        const h = String(hex || '').replace('#','').trim();
+        if (h.length !== 6) return 'rgba(0,0,0,' + alpha + ')';
+        const r = parseInt(h.slice(0,2), 16);
+        const g = parseInt(h.slice(2,4), 16);
+        const b = parseInt(h.slice(4,6), 16);
+        return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+      };
+
+      const realisedByDay = new Map();
+      let minT = null;
+      let maxT = null;
+      for (const r of (model.tables.realisedPnl || [])) {
+        const k = sgtDateKey(r.t);
+        realisedByDay.set(k, (realisedByDay.get(k) || 0) + (r.realisedPnl || 0));
+        minT = minT == null ? r.t : Math.min(minT, r.t);
+        maxT = maxT == null ? r.t : Math.max(maxT, r.t);
+      }
+
+      const clampMonthFromT = (t) => {
+        if (t == null || !Number.isFinite(t)) return null;
+        const d = new Date(t + 8 * 60 * 60 * 1000); // SGT
+        return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
+      };
+      const minMonth = clampMonthFromT(minT);
+      const maxMonth = clampMonthFromT(maxT);
+      const monthKey = (x) => x.y * 100 + x.m;
+      const clampMonthToBounds = (target) => {
+        let k = monthKey(target);
+        if (minMonth) k = Math.max(k, monthKey(minMonth));
+        if (maxMonth) k = Math.min(k, monthKey(maxMonth));
+        return { y: Math.floor(k / 100), m: k % 100 };
+      };
+
+      let calMode = 'month'; // 'month' | 'year'
+      let calMonth = null;
+      let yearModeYear = null;
+      let lastMonthInYearMode = null;
+
+      const initFromTo = () => {
+        const to = model.meta && model.meta.to != null ? model.meta.to : null;
+        const base = to == null ? (maxT != null ? maxT : Date.now()) : to;
+        const d = new Date(base);
+        const sgt = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+        calMonth = clampMonthToBounds({ y: sgt.getUTCFullYear(), m: sgt.getUTCMonth() + 1 });
+        yearModeYear = calMonth.y;
+        lastMonthInYearMode = calMonth.m;
+      };
+
+      const toneFor = (n) => {
+        if (n == null || !Number.isFinite(n) || Math.abs(n) <= 1e-15) return null;
+        return n > 0 ? '#21AC77' : '#E34951';
+      };
+
+      const monthTotal = (y, m) => {
+        const daysInMonth = new Date(Date.UTC(y, m, 0, 12, 0, 0)).getUTCDate();
+        let s = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+          s += realisedByDay.get(ymdKey(y, m, d)) || 0;
+        }
+        return s;
+      };
+
+      const yearTotals = (yy) => {
+        const monthToTotal = new Map();
+        for (const [k, v] of realisedByDay.entries()) {
+          if (k.length < 7) continue;
+          const y = Number(k.slice(0,4));
+          const m = Number(k.slice(5,7));
+          if (!Number.isFinite(y) || !Number.isFinite(m)) continue;
+          if (y !== yy) continue;
+          monthToTotal.set(m, (monthToTotal.get(m) || 0) + v);
+        }
+        let yearTotal = 0;
+        for (const v of monthToTotal.values()) yearTotal += v;
+        return { monthToTotal, yearTotal };
+      };
+
+      const canPrev = () => {
+        if (!minMonth || !calMonth) return true;
+        return monthKey(calMonth) > monthKey(minMonth);
+      };
+      const canNext = () => {
+        if (!maxMonth || !calMonth) return true;
+        return monthKey(calMonth) < monthKey(maxMonth);
+      };
+      const canPrevYear = () => {
+        const minY = minMonth ? minMonth.y : -Infinity;
+        return yearModeYear > minY;
+      };
+      const canNextYear = () => {
+        const maxY = maxMonth ? maxMonth.y : Infinity;
+        return yearModeYear < maxY;
+      };
+
+      const setOpen = (open) => {
+        if (!modal) return;
+        if (open) {
+          modal.classList.add('open');
+          modal.setAttribute('aria-hidden', 'false');
+        } else {
+          modal.classList.remove('open');
+          modal.setAttribute('aria-hidden', 'true');
+        }
+      };
+
+      const renderMonth = () => {
+        if (!elBody || !calMonth) return;
+        const y = calMonth.y;
+        const m = calMonth.m;
+        const first = new Date(Date.UTC(y, m - 1, 1, 12, 0, 0));
+        const daysInMonth = new Date(Date.UTC(y, m, 0, 12, 0, 0)).getUTCDate();
+        const firstDow = ((first.getUTCDay() + 6) % 7) + 1; // Mon=1..Sun=7
+        const padBefore = firstDow - 1;
+        const weekRows = Math.ceil((padBefore + daysInMonth) / 7);
+
+        btnLabel.textContent = monthName(y, m);
+        btnLabel.title = 'Switch to year view';
+        btnPrev.title = 'Previous month';
+        btnNext.title = 'Next month';
+
+        btnPrev.disabled = !canPrev();
+        btnNext.disabled = !canNext();
+
+        const tot = monthTotal(y, m);
+        const totTone = toneFor(tot);
+        const sign = tot > 0 ? '+' : '';
+        elTotal.textContent = (Number.isFinite(tot) ? (sign + fmtPnlCell(tot) + ' ' + DU) : '-');
+        elTotal.style.color = totTone ? totTone : '';
+
+        elBody.innerHTML = '';
+
+        const dow = document.createElement('div');
+        dow.className = 'dowRow';
+        for (const t of ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']) {
+          const c = document.createElement('div');
+          c.className = 'dowCell';
+          c.textContent = t;
+          dow.appendChild(c);
+        }
+        elBody.appendChild(dow);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'dayGridWrap';
+        const grid = document.createElement('div');
+        grid.className = 'dayGrid';
+        grid.style.gridTemplateColumns = 'repeat(7, 80px)';
+        grid.style.gridTemplateRows = 'repeat(' + weekRows + ', minmax(0, 1fr))';
+
+        for (let i = 0; i < padBefore; i++) {
+          const pad = document.createElement('div');
+          grid.appendChild(pad);
+        }
+
+        for (let idx = 0; idx < daysInMonth; idx++) {
+          const day = idx + 1;
+          const key = ymdKey(y, m, day);
+          const pnl = realisedByDay.has(key) ? realisedByDay.get(key) : null;
+          const tone = toneFor(pnl);
+
+          const tile = document.createElement('div');
+          tile.className = 'tile';
+          if (tone) tile.style.backgroundImage = 'linear-gradient(' + hexToRgba(tone, 0.10) + ', ' + hexToRgba(tone, 0.10) + ')';
+
+          const dayEl = document.createElement('div');
+          dayEl.className = 'tileDay';
+          dayEl.textContent = String(day);
+          tile.appendChild(dayEl);
+
+          const center = document.createElement('div');
+          center.className = 'tileCenter';
+          const val = document.createElement('div');
+          val.className = 'tileVal';
+          if (tone) val.style.color = tone;
+          val.textContent = (pnl == null || !Number.isFinite(pnl)) ? '-' : fmtPnlCell(pnl);
+          center.appendChild(val);
+          tile.appendChild(center);
+
+          grid.appendChild(tile);
+        }
+
+        wrap.appendChild(grid);
+        elBody.appendChild(wrap);
+      };
+
+      const renderYear = () => {
+        if (!elBody) return;
+        btnLabel.textContent = String(yearModeYear);
+        btnLabel.title = 'Back to month view';
+        btnPrev.title = 'Previous year';
+        btnNext.title = 'Next year';
+
+        btnPrev.disabled = !canPrevYear();
+        btnNext.disabled = !canNextYear();
+
+        const yt = yearTotals(yearModeYear);
+        const tot = yt.yearTotal;
+        const totTone = toneFor(tot);
+        const sign = tot > 0 ? '+' : '';
+        elTotal.textContent = (Number.isFinite(tot) ? (sign + fmtPnlCell(tot) + ' ' + DU) : '-');
+        elTotal.style.color = totTone ? totTone : '';
+
+        elBody.innerHTML = '';
+        const grid = document.createElement('div');
+        grid.className = 'yearGrid';
+        const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        for (let i = 0; i < 12; i++) {
+          const mm = i + 1;
+          const k = monthKey({ y: yearModeYear, m: mm });
+          const enabled = (!minMonth || k >= monthKey(minMonth)) && (!maxMonth || k <= monthKey(maxMonth));
+          const total = yt.monthToTotal.get(mm) || 0;
+          const has = enabled && Number.isFinite(total) && Math.abs(total) > 1e-15;
+          const tone = has ? (total > 0 ? '#21AC77' : '#E34951') : null;
+
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'monthTile';
+          b.disabled = !enabled;
+          if (tone) b.style.backgroundImage = 'linear-gradient(' + hexToRgba(tone, 0.10) + ', ' + hexToRgba(tone, 0.10) + ')';
+
+          const lab = document.createElement('div');
+          lab.style.position = 'absolute';
+          lab.style.left = '8px';
+          lab.style.top = '8px';
+          lab.textContent = labels[i];
+          b.appendChild(lab);
+
+          const center = document.createElement('div');
+          center.className = 'tileCenter';
+          const val = document.createElement('div');
+          val.className = 'tileVal';
+          if (tone) val.style.color = tone;
+          val.textContent = has ? fmtPnlCell(total) : '-';
+          center.appendChild(val);
+          b.appendChild(center);
+
+          b.onclick = () => {
+            if (!enabled) return;
+            calMonth = { y: yearModeYear, m: mm };
+            lastMonthInYearMode = mm;
+            calMode = 'month';
+            renderCalendar();
+          };
+          grid.appendChild(b);
+        }
+        elBody.appendChild(grid);
+      };
+
+      const renderCalendar = () => {
+        if (!btnOpen || !modal) return;
+        if (calMonth == null) initFromTo();
+        if (calMode === 'month') {
+          yearModeYear = calMonth.y;
+          lastMonthInYearMode = calMonth.m;
+          renderMonth();
+        } else {
+          renderYear();
+        }
+      };
+
+      btnOpen.onclick = () => {
+        if ((model.tables.realisedPnl || []).length === 0) return;
+        if (calMonth == null) initFromTo();
+        calMode = 'month';
+        setOpen(true);
+        renderCalendar();
+      };
+      btnClose.onclick = () => setOpen(false);
+      modalBg.onclick = () => setOpen(false);
+
+      btnPrev.onclick = () => {
+        if (calMode === 'month') {
+          if (!canPrev() || !calMonth) return;
+          const nm = calMonth.m - 1;
+          calMonth = nm <= 0 ? { y: calMonth.y - 1, m: 12 } : { y: calMonth.y, m: nm };
+        } else {
+          if (!canPrevYear()) return;
+          yearModeYear -= 1;
+        }
+        renderCalendar();
+      };
+      btnNext.onclick = () => {
+        if (calMode === 'month') {
+          if (!canNext() || !calMonth) return;
+          const nm = calMonth.m + 1;
+          calMonth = nm >= 13 ? { y: calMonth.y + 1, m: 1 } : { y: calMonth.y, m: nm };
+        } else {
+          if (!canNextYear()) return;
+          yearModeYear += 1;
+        }
+        renderCalendar();
+      };
+      btnLabel.onclick = () => {
+        if (calMode === 'month') {
+          if (!calMonth) initFromTo();
+          yearModeYear = calMonth.y;
+          lastMonthInYearMode = calMonth.m;
+          calMode = 'year';
+        } else {
+          const target = clampMonthToBounds({ y: yearModeYear, m: lastMonthInYearMode || 1 });
+          calMonth = target;
+          calMode = 'month';
+        }
+        renderCalendar();
+      };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
