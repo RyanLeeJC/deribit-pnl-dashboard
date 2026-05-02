@@ -2,6 +2,8 @@
 
 Static web app for crypto options students to upload a Deribit transaction log CSV, view a live analytics dashboard in-browser, and download a standalone `.html` snapshot of the dashboard.
 
+**Live site:** [https://ryanleejc.github.io/deribit-pnl-dashboard/](https://ryanleejc.github.io/deribit-pnl-dashboard/)
+
 ## Run locally
 
 ```bash

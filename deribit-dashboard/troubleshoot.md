@@ -1,5 +1,22 @@
 # Troubleshooting notes
 
+Why it didn’t work
+You ran npm run dev from Deribit PNL Dashboard (the repo root). There is no package.json there, so npm failed with ENOENT. The app lives in the deribit-dashboard subfolder.
+
+What to do
+Open a terminal and go into the app folder:
+cd "C:\Users\jian_\Desktop\BTC\Deribit PNL Dashboard\deribit-dashboard"
+Install once (if you haven’t):
+npm install
+Start the dev server:
+npm run dev
+Then open http://localhost:5173/ or http://127.0.0.1:5173/ — both work once Vite prints “ready”.
+
+A dev server was started from deribit-dashboard; Vite reported http://localhost:5173/ as the local URL. Keep that terminal window open while you use the app.
+
+
+
+
 ## How did you figure the deposit is in BTC? (Row 471)
 
 The CSV **does not put the word “BTC” on row 471**. That row is still **account currency–sized** (small decimals in `Cash Flow` / `Balance` / `Equity`), and the large **`Index Price`** (e.g. `101929.95`) is an **index**, not the deposit unit.

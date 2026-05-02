@@ -219,15 +219,15 @@ export function generateStandaloneHtml(args: {
 
       <div class="grid3">
         <div class="card">
-          <p class="label">PNL (CURRENT)</p>
-          <p class="value" id="pnlCurrent" style="margin-top:2px;">-</p>
-        </div>
-        <div class="card">
           <div class="kpiHead">
             <p class="label" style="margin:0;">REALISED PNL (TOTAL)</p>
             <button type="button" class="kpiBtn" id="openPnlCal">RPNL Calendar</button>
           </div>
           <p class="value" id="realisedTotal" style="margin-top:2px;">-</p>
+        </div>
+        <div class="card">
+          <p class="label">PNL (CURRENT)</p>
+          <p class="value" id="pnlCurrent" style="margin-top:2px;">-</p>
         </div>
         <div class="card">
           <p class="label">FEES (TOTAL)</p>
@@ -953,7 +953,7 @@ export function generateStandaloneHtml(args: {
       const realisedPoints = buildRealisedStepSeries();
 
       let chart;
-      let activeChart = 'equity';
+      let activeChart = 'realisedPnl';
 
       const commonTicks = {
         color: '#a1a1aa',
@@ -1138,9 +1138,9 @@ export function generateStandaloneHtml(args: {
           };
           root.appendChild(b);
         };
-        mk('equity', 'Equity');
-        mk('pnl', 'PNL');
         mk('realisedPnl', 'Realised PnL');
+        mk('pnl', 'PNL');
+        mk('equity', 'Equity');
       }
 
       renderChartTabs();

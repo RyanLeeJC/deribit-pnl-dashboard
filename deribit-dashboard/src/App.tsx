@@ -88,7 +88,7 @@ export default function App() {
   const [tableTab, setTableTab] = useState<
     'trades' | 'transfers' | 'realisedPnl' | 'negativeBalanceFees' | 'affiliateFees'
   >('realisedPnl')
-  const [chartTab, setChartTab] = useState<'equity' | 'realisedPnl' | 'pnl'>('equity')
+  const [chartTab, setChartTab] = useState<'equity' | 'realisedPnl' | 'pnl'>('realisedPnl')
   const [pnlCalOpen, setPnlCalOpen] = useState(false)
   const [pnlCalMonth, setPnlCalMonth] = useState<{ y: number; m: number } | null>(null)
 
@@ -224,7 +224,7 @@ export default function App() {
       const rows = sortChronological(parsed.rows)
       const model = buildDashboardModel(rows)
       setTableTab('realisedPnl')
-      setChartTab('equity')
+      setChartTab('realisedPnl')
       setLoaded({
         fileName: file.name,
         model,
@@ -396,6 +396,14 @@ export default function App() {
           <div className="space-y-6">
             <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <StatCard
+                label="REALISED PNL (TOTAL)"
+                value={formatAssetFixed(loaded.model.totals.realisedPnl, 4, displayUnit)}
+                valueNumber={loaded.model.totals.realisedPnl}
+                hoverInfo={REALISED_PNL_HOVER_TIP}
+                actionLabel="RPNL Calendar"
+                onAction={() => setPnlCalOpen(true)}
+              />
+              <StatCard
                 label="PNL (CURRENT)"
                 value={
                   loaded.model.totals.pnlCurrent == null
@@ -403,14 +411,6 @@ export default function App() {
                     : formatAssetFixed(loaded.model.totals.pnlCurrent, 4, displayUnit)
                 }
                 valueNumber={loaded.model.totals.pnlCurrent}
-              />
-              <StatCard
-                label="REALISED PNL (TOTAL)"
-                value={formatAssetFixed(loaded.model.totals.realisedPnl, 4, displayUnit)}
-                valueNumber={loaded.model.totals.realisedPnl}
-                hoverInfo={REALISED_PNL_HOVER_TIP}
-                actionLabel="RPNL Calendar"
-                onAction={() => setPnlCalOpen(true)}
               />
               <StatCard
                 label="FEES (TOTAL)"
@@ -440,15 +440,15 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setChartTab('equity')}
+                      onClick={() => setChartTab('realisedPnl')}
                       className={[
                         'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
-                        chartTab === 'equity'
+                        chartTab === 'realisedPnl'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
                       ].join(' ')}
                     >
-                      Equity
+                      <DelayedHoverTip tip={REALISED_PNL_HOVER_TIP}>Realised PnL</DelayedHoverTip>
                     </button>
                     <button
                       type="button"
@@ -464,15 +464,15 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setChartTab('realisedPnl')}
+                      onClick={() => setChartTab('equity')}
                       className={[
                         'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
-                        chartTab === 'realisedPnl'
+                        chartTab === 'equity'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
                       ].join(' ')}
                     >
-                      <DelayedHoverTip tip={REALISED_PNL_HOVER_TIP}>Realised PnL</DelayedHoverTip>
+                      Equity
                     </button>
                   </div>
                   <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
