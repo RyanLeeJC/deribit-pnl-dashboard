@@ -18,6 +18,15 @@ export function formatAssetFixed(n: number, decimals: number, unit: DisplayUnit)
   }).format(n)} ${unit}`
 }
 
+/** Account summary panel: 4 dp; Volume Traded uses {@link formatVolumeTradedAmount} (2 dp). */
+export function formatAccountSummaryAmount(n: number, unit: DisplayUnit): string {
+  return formatAssetFixed(n, 4, unit)
+}
+
+export function formatVolumeTradedAmount(n: number, unit: DisplayUnit): string {
+  return formatAssetFixed(n, 2, unit)
+}
+
 export function formatBtc(n: number): string {
   return formatAsset(n, 'BTC')
 }

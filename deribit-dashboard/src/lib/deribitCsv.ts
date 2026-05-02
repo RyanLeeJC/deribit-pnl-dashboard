@@ -36,6 +36,23 @@ export const DERIBIT_TX_LOG_HEADERS = [
 
 export type DeribitTxLogHeader = (typeof DERIBIT_TX_LOG_HEADERS)[number]
 
+/**
+ * Column names that may be absent in some Deribit/re-exported CSVs. Parsing still works
+ * (fields read as empty → null); we do not emit "Missing expected header" for these.
+ * Includes columns not used by the dashboard model and Funding (totals would be 0 if omitted).
+ */
+export const DERIBIT_OPTIONAL_TX_LOG_HEADERS = new Set<DeribitTxLogHeader>([
+  'ID',
+  'UserSeq',
+  'Base Amount',
+  'Position',
+  'Mark Price',
+  'Settlement Price',
+  'Funding',
+  'Fee Rate',
+  'Fee Balance',
+])
+
 export type DeribitTxLogRow = {
   id: string
   userSeq: string
@@ -166,6 +183,7 @@ function validateHeaders(
   const expected = new Set(DERIBIT_TX_LOG_HEADERS)
 
   for (const h of DERIBIT_TX_LOG_HEADERS) {
+    if (DERIBIT_OPTIONAL_TX_LOG_HEADERS.has(h)) continue
     if (!headerFields.includes(h)) {
       warnings.push({
         rowNumber: 1,
@@ -211,6 +229,7 @@ export function parseDeribitCsv(text: string): DeribitCsvParseResult {
 
   const knownTypes = new Set([
     'trade',
+    'affiliate',
     'options_settlement_summary',
     'delivery',
     'deposit',

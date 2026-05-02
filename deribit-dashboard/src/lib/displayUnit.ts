@@ -31,5 +31,32 @@ export function inferDisplayUnitFromEarliestRow(rows: DeribitTxLogRow[]): Displa
     const re = new RegExp(`\\b${token}\\b`)
     if (re.test(haystack)) return token
   }
+
+  // Deribit exports often omit the asset ticker on early affiliate/deposit rows.
+  // Easy/robust fallback: infer from the first few Instruments (prefix before "-"),
+  // which is typically one of BTC / ETH / USDC for account logs.
+  const sorted = [...rows].sort((a, b) => a.date.getTime() - b.date.getTime())
+  const INSTRUMENT_TOKENS: DisplayUnit[] = ['BTC', 'ETH', 'USDC']
+  let seen = 0
+  for (const r of sorted) {
+    const inst = (r.instrument ?? '').trim()
+    if (!inst) continue
+    const prefix = inst.split('-')[0]?.trim().toUpperCase() ?? ''
+    seen++
+    if (prefix === 'BTC' || prefix === 'ETH' || prefix === 'USDC') return prefix as DisplayUnit
+    if (seen >= 12) break
+  }
+
+  // Last fallback: scan forward for explicit mentions in instrument/info/note.
+  for (const r of sorted) {
+    const rowHaystack = [r.instrument ?? '', r.info ?? '', r.note ?? '']
+      .map((x) => String(x ?? ''))
+      .join('\n')
+      .toUpperCase()
+    for (const token of INSTRUMENT_TOKENS) {
+      const re = new RegExp(`\\b${token}\\b`)
+      if (re.test(rowHaystack)) return token
+    }
+  }
   return DEFAULT_UNIT
 }

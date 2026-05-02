@@ -66,7 +66,7 @@ export function generateStandaloneHtml(args: {
       .kpiBtn:hover { background: rgba(39,39,42,0.55); }
       .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin: 0 0 6px; }
       .value { font-size: 18px; font-weight: 700; margin: 0; font-variant-numeric: tabular-nums; }
-      .layout2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 12px; align-items: stretch; }
+      .layout2 { display: grid; grid-template-columns: 3fr 1fr; gap: 12px; margin-top: 12px; align-items: stretch; }
       @media (max-width: 980px) {
         .layout2 { grid-template-columns: 1fr; }
         .grid3 { grid-template-columns: 1fr; }
@@ -85,10 +85,19 @@ export function generateStandaloneHtml(args: {
       .tab.active { background: #f4f4f5; color: #111827; border-color: #f4f4f5; }
       .muted { color: #a1a1aa; font-size: 12px; }
       .chart { height: 320px; margin-top: 12px; }
-      .tableWrap { overflow-x: auto; border-top: 1px solid #27272a; }
+      .tableWrap { max-height: 420px; overflow: auto; border-top: 1px solid #27272a; }
       table { border-collapse: collapse; width: 100%; font-size: 13px; }
       th, td { padding: 10px 12px; border-bottom: 1px solid #27272a; white-space: nowrap; }
-      th { text-align: left; font-size: 12px; color: #a1a1aa; background: rgba(255,255,255,0.03); }
+      th {
+        text-align: left;
+        font-size: 12px;
+        color: #a1a1aa;
+        background: #18181b;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        box-shadow: 0 1px 0 0 #27272a;
+      }
       .right { text-align: right; }
       .truncate { max-width: 520px; overflow: hidden; text-overflow: ellipsis; }
 
@@ -124,11 +133,17 @@ export function generateStandaloneHtml(args: {
       .modalTitle { font-size: 14px; font-weight: 800; margin: 0; }
       .modalControls { display:flex; align-items:center; gap: 6px; }
       .ctlBtn {
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        padding: 0;
         border: 1px solid #27272a;
         background: #18181b;
         color: #f4f4f5;
         border-radius: 8px;
-        padding: 6px 10px;
         font-size: 13px;
         font-weight: 800;
         cursor: pointer;
@@ -204,15 +219,15 @@ export function generateStandaloneHtml(args: {
 
       <div class="grid3">
         <div class="card">
-          <div class="kpiHead">
-            <p class="label" style="margin:0;">PNL (CURRENT)</p>
-            <button type="button" class="kpiBtn" id="openPnlCal">PNL Calendar</button>
-          </div>
+          <p class="label">PNL (CURRENT)</p>
           <p class="value" id="pnlCurrent" style="margin-top:2px;">-</p>
         </div>
         <div class="card">
-          <p class="label">REALISED PNL (TOTAL)</p>
-          <p class="value" id="realisedTotal">-</p>
+          <div class="kpiHead">
+            <p class="label" style="margin:0;">REALISED PNL (TOTAL)</p>
+            <button type="button" class="kpiBtn" id="openPnlCal">RPNL Calendar</button>
+          </div>
+          <p class="value" id="realisedTotal" style="margin-top:2px;">-</p>
         </div>
         <div class="card">
           <p class="label">FEES (TOTAL)</p>
@@ -240,7 +255,7 @@ export function generateStandaloneHtml(args: {
               <span class="muted">Equity</span><span id="eqSummary" style="font-weight:700;">-</span>
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
-              <span class="muted" id="volNotionalLabel">Trade Volume (BTC Notional)</span><span id="volSummary" style="font-weight:700;">-</span>
+              <span class="muted" id="volNotionalLabel">Volume Traded</span><span id="volSummary" style="font-weight:700;">-</span>
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
               <span class="muted">Net Deposit</span><span id="netDepSummary" style="font-weight:700;">-</span>
@@ -253,6 +268,12 @@ export function generateStandaloneHtml(args: {
             </div>
             <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
               <span class="muted">Net Transfers</span><span id="netXferSummary" style="font-weight:700;">-</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; gap:12px; font-size: 13px;">
+              <span class="muted">Spot Bought/Sold</span><span id="spotNetSummary" style="font-weight:700;">-</span>
+            </div>
+            <div id="affSummaryRow" style="display:none; justify-content:space-between; gap:12px; font-size: 13px;">
+              <span class="muted">Affiliate Fees</span><span id="affSummary" style="font-weight:700;">-</span>
             </div>
           </div>
         </div>
@@ -301,6 +322,7 @@ export function generateStandaloneHtml(args: {
       const fmtInt = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n);
       const fmtAmt = (n, min=2, max=8) => new Intl.NumberFormat(undefined, { maximumFractionDigits: max, minimumFractionDigits: min }).format(n) + ' ' + DU;
       const fmtAmt4 = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 4 }).format(n) + ' ' + DU;
+      const fmtVolTraded = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(n) + ' ' + DU;
       const fmtQty = (n) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 10, minimumFractionDigits: 0, useGrouping: false }).format(n);
       const fmtDate = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: SGT, day:'2-digit', month:'2-digit', year:'2-digit' }).format(new Date(ms));
       const fmtDateTime = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: SGT, year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).format(new Date(ms));
@@ -342,7 +364,7 @@ export function generateStandaloneHtml(args: {
       document.getElementById('csvName').textContent = srcName;
       document.getElementById('genAt').textContent = fmtDateTime(model.meta.generatedAt);
       const volLab = document.getElementById('volNotionalLabel');
-      if (volLab) volLab.textContent = 'Trade Volume (' + DU + ' Notional)';
+      if (volLab) volLab.textContent = 'Volume Traded';
 
       document.getElementById('pnlCurrent').textContent =
         model.totals.pnlCurrent == null ? '-' : fmtAmt4(model.totals.pnlCurrent);
@@ -360,15 +382,26 @@ export function generateStandaloneHtml(args: {
 
       document.getElementById('eqSummary').textContent =
         model.totals.equityCurrent == null ? '-' : fmtAmt4(model.totals.equityCurrent);
-      document.getElementById('volSummary').textContent = fmtAmt(model.totals.tradeVolumeBtcNotional, 2, 2);
-      document.getElementById('netDepSummary').textContent = fmtAmt(model.totals.netDeposit);
+      document.getElementById('volSummary').textContent = fmtVolTraded(model.totals.tradeVolumeBtcNotional);
+      document.getElementById('netDepSummary').textContent = fmtAmt4(model.totals.netDeposit);
       // Back-compat: older exports won't have this field.
       if (document.getElementById('netXferSummary')) {
         const nx = (model.totals && typeof model.totals.netTransfers === 'number') ? model.totals.netTransfers : 0;
-        document.getElementById('netXferSummary').textContent = fmtAmt(nx);
+        document.getElementById('netXferSummary').textContent = fmtAmt4(nx);
       }
-      document.getElementById('depSummary').textContent = fmtAmt(model.totals.deposits);
-      document.getElementById('wdSummary').textContent = fmtAmt(model.totals.withdrawals);
+      if (document.getElementById('spotNetSummary')) {
+        const sn = (model.totals && typeof model.totals.spotChangeNet === 'number') ? model.totals.spotChangeNet : 0;
+        document.getElementById('spotNetSummary').textContent = fmtAmt4(sn);
+      }
+      if (document.getElementById('affSummary') && model.totals && typeof model.totals.affiliateFeesReceived === 'number') {
+        const af = model.totals.affiliateFeesReceived;
+        if (Number.isFinite(af) && Math.abs(af) > 1e-15) {
+          document.getElementById('affSummaryRow').style.display = 'flex';
+          document.getElementById('affSummary').textContent = fmtAmt4(af);
+        }
+      }
+      document.getElementById('depSummary').textContent = fmtAmt4(model.totals.deposits);
+      document.getElementById('wdSummary').textContent = fmtAmt4(model.totals.withdrawals);
 
       // Tables
       let activeTable = 'trades';
@@ -404,9 +437,17 @@ export function generateStandaloneHtml(args: {
         }
       }
 
+      function transferTypeLabel(t) {
+        if (t === 'deposit') return 'DEPOSIT';
+        if (t === 'withdrawal' || t === 'withdraw') return 'WITHDRAWAL';
+        if (t === 'transfer') return 'TRANSFER';
+        return t ? String(t).toUpperCase() : '-';
+      }
+
       function renderTransfers() {
         setHead(\`<tr>
           <th>Date</th>
+          <th>Type</th>
           <th>IN/OUT</th><th class="right">Change</th>
           <th class="right">Resulting Equity</th>
           <th>Info</th>
@@ -421,6 +462,7 @@ export function generateStandaloneHtml(args: {
             return el;
           };
           tr.appendChild(td(fmtDateTime(r.t)));
+          tr.appendChild(td(transferTypeLabel(r.type)));
           tr.appendChild(
             td(typeof r.change === 'number' && Number.isFinite(r.change) && r.change > 0 ? 'IN' : 'OUT'),
           );
@@ -514,11 +556,32 @@ export function generateStandaloneHtml(args: {
         }
       }
 
+      function renderAffiliateFees() {
+        setHead(\`<tr>
+          <th>Date</th><th class="right">Fee Received</th>
+        </tr>\`);
+        clearBody();
+        for (const r of (model.tables.affiliateFees || []).slice(0, 50)) {
+          const tr = document.createElement('tr');
+          const td = (t, cls) => {
+            const el = document.createElement('td');
+            if (cls) el.className = cls;
+            el.textContent = t;
+            return el;
+          };
+          tr.appendChild(td(fmtDateTime(r.t)));
+          const txt = (r.feeReceivedText || '').trim();
+          tr.appendChild(td(txt ? (txt + ' ' + DU) : (r.feeReceived == null ? '-' : (String(r.feeReceived) + ' ' + DU)), 'right'));
+          body.appendChild(tr);
+        }
+      }
+
       function renderTable() {
         if (activeTable === 'trades') renderTrades();
         else if (activeTable === 'transfers') renderTransfers();
         else if (activeTable === 'realisedPnl') renderRealised();
-        else renderNegBalFees();
+        else if (activeTable === 'negativeBalanceFees') renderNegBalFees();
+        else renderAffiliateFees();
       }
 
       function renderTableTabs() {
@@ -540,6 +603,7 @@ export function generateStandaloneHtml(args: {
         mk('negativeBalanceFees', 'Negative Balance Fees');
         mk('trades', 'Recent Trades');
         mk('transfers', 'Transfers');
+        if ((model.tables.affiliateFees || []).length) mk('affiliateFees', 'Affiliate Fees');
       }
 
       renderTableTabs();
@@ -867,8 +931,9 @@ export function generateStandaloneHtml(args: {
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
-      const equityPoints = (model.series.equity || []).map(p => ({ x: p.t, y: p.equity }));
-      const pnlPoints = (model.series.pnl || []).map(p => ({ x: p.t, y: p.pnl }));
+      const pnlSeries = model.series.pnl || [];
+      const equityPoints = pnlSeries.map(p => ({ x: p.t, y: p.equityEod }));
+      const pnlPoints = pnlSeries.map(p => ({ x: p.t, y: p.pnl }));
 
       function buildRealisedStepSeries() {
         const dailyDelta = new Map();
@@ -876,32 +941,12 @@ export function generateStandaloneHtml(args: {
           const key = sgtDateKey(row.t);
           dailyDelta.set(key, (dailyDelta.get(key) || 0) + row.realisedPnl);
         }
-
-        const equitySeries = model.series.equity || [];
-        if (!equitySeries.length) return [];
-
-        const minT = Math.min(...equitySeries.map(p => p.t));
-        const maxT = Math.max(...equitySeries.map(p => p.t));
-        const startKey = sgtDateKey(minT);
-        const endKey = sgtDateKey(maxT);
-
-        const parseDayKeyToUtcMs = (dayKey) => {
-          const [y,m,d] = dayKey.split('-').map(Number);
-          return Date.UTC(y, m - 1, d, 12, 0, 0);
-        };
-        const addOneDayKey = (dayKey) => {
-          const ms = parseDayKeyToUtcMs(dayKey);
-          const next = new Date(ms + 24 * 60 * 60 * 1000);
-          return next.toLocaleDateString('en-CA', { timeZone: SGT });
-        };
-
-        const dayKeys = [];
-        for (let k = startKey; k.localeCompare(endKey) <= 0; k = addOneDayKey(k)) dayKeys.push(k);
-
+        if (!pnlSeries.length) return [];
         let cumulative = 0;
-        return dayKeys.map((dayKey) => {
-          cumulative += dailyDelta.get(dayKey) || 0;
-          return { x: parseDayKeyToUtcMs(dayKey), y: cumulative };
+        return pnlSeries.map((p) => {
+          const key = sgtDateKey(p.t);
+          cumulative += dailyDelta.get(key) || 0;
+          return { x: p.t, y: cumulative };
         });
       }
 

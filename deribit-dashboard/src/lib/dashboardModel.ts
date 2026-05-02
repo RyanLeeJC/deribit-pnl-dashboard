@@ -18,6 +18,13 @@ export type InstrumentCount = {
   count: number
 }
 
+/** Side values for spot conversions; their Change is excluded from the PNL cash-flow bridge. */
+function isSpotBuyOrSellSide(side: string | null): boolean {
+  if (side == null || side === '') return false
+  const s = side.trim().toLowerCase().replace(/\s+/g, ' ')
+  return s === 'spot buy' || s === 'spot sell'
+}
+
 export type DashboardModel = {
   meta: {
     generatedAt: number
@@ -35,6 +42,9 @@ export type DashboardModel = {
     withdrawals: number
     netDeposit: number
     netTransfers: number
+    /** Sum of Change for rows with Side spot buy / spot sell (lifetime net spot cash flow). */
+    spotChangeNet: number
+    affiliateFeesReceived: number
     realisedPnl: number
     pnlCurrent: number | null
     tradeVolumeBtcNotional: number
@@ -48,6 +58,8 @@ export type DashboardModel = {
       equityEod: number | null
       netDepositsToDate: number
       netTransfersToDate: number
+      /** Cumulative sum of Change for spot buy / spot sell rows (per SGT day, then running total). */
+      spotChangeToDate: number
     }>
   }
   breakdowns: {
@@ -92,6 +104,12 @@ export type DashboardModel = {
       feeCharged: number | null
       feeChargedRaw: string | null
       feeChargedText: string | null
+    }>
+    affiliateFees: Array<{
+      t: number
+      feeReceived: number | null
+      feeReceivedRaw: string | null
+      feeReceivedText: string | null
     }>
   }
 }
@@ -265,6 +283,26 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
           ? expandScientificToDecimal(r.raw['Cash Flow'])
           : null,
     }))
+
+  const affiliateFees = rows
+    .filter((r) => r.type === 'affiliate')
+    .slice()
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .map((r) => ({
+      t: r.date.getTime(),
+      // Spec: show the CSV "Cash Flow" value under Fee Received (as-is).
+      feeReceived: r.cashFlow,
+      feeReceivedRaw:
+        typeof r.raw?.['Cash Flow'] === 'string' && r.raw['Cash Flow'].trim().length
+          ? r.raw['Cash Flow'].trim()
+          : null,
+      feeReceivedText:
+        typeof r.raw?.['Cash Flow'] === 'string' && r.raw['Cash Flow'].trim().length
+          ? expandScientificToDecimal(r.raw['Cash Flow'])
+          : null,
+    }))
+
+  const affiliateFeesReceived = sumNullable(affiliateFees.map((r) => r.feeReceived))
 
   // Realised PnL definition (user spec):
   // - Emit once the matched open lots for this instrument are fully closed (multi partial closes OK).
@@ -588,8 +626,8 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
       .map((r) => (typeof r.amount === 'number' ? Math.abs(r.amount) : null)),
   )
 
-  // PNL series (per SGT day): end-of-day equity minus net deposits-to-date minus net transfers-to-date.
-  // Transfers are internal (between subaccounts) and should not move PnL, so we subtract them explicitly.
+  // PNL series (per SGT day): EOD equity minus net deposits-to-date minus net transfers-to-date minus
+  // cumulative spot Change (spot buy/sell rows), so converting cash↔BTC does not move the series.
   const netDepositsByDay = new Map<string, number>()
   for (const r of rows) {
     if (r.type !== 'deposit' && r.type !== 'withdrawal' && r.type !== 'withdraw') continue
@@ -606,6 +644,16 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
     netTransfersByDay.set(day, (netTransfersByDay.get(day) ?? 0) + n)
   }
 
+  const spotChangeByDay = new Map<string, number>()
+  let spotChangeNet = 0
+  for (const r of rows) {
+    if (!isSpotBuyOrSellSide(r.side)) continue
+    const day = sgtDayKey(r.date.getTime())
+    const ch = typeof r.change === 'number' && Number.isFinite(r.change) ? r.change : 0
+    spotChangeNet += ch
+    spotChangeByDay.set(day, (spotChangeByDay.get(day) ?? 0) + ch)
+  }
+
   const pnlByDay = new Map<string, { t: number; equityEod: number | null }>()
   for (const r of rows) {
     const day = sgtDayKey(r.date.getTime())
@@ -619,43 +667,54 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
     return Date.UTC(y, m - 1, d, 12, 0, 0)
   }
 
-  const daySet = new Set<string>()
-  for (const r of rows) daySet.add(sgtDayKey(r.date.getTime()))
-  for (const d of netDepositsByDay.keys()) daySet.add(d)
-  for (const d of netTransfersByDay.keys()) daySet.add(d)
-  const allDays = [...daySet].sort()
+  const addOneSgtDayKey = (dayKey: string): string => {
+    const ms = parseDayKeyToUtcMs(dayKey)
+    const next = new Date(ms + 24 * 60 * 60 * 1000)
+    return next.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
+  }
+
+  /** Every SGT calendar day from first to last row timestamp (inclusive), so charts share one dense axis. */
+  const allDays: string[] = []
+  if (from != null && to != null) {
+    const startKey = sgtDayKey(from)
+    const endKey = sgtDayKey(to)
+    for (let k = startKey; k.localeCompare(endKey) <= 0; k = addOneSgtDayKey(k)) {
+      allDays.push(k)
+    }
+  }
 
   let cumulativeNetDeposits = 0
   let cumulativeNetTransfers = 0
+  let cumulativeSpotChange = 0
   let lastEquityEod: number | null = null
-  let lastEquityT = 0
   const pnlSeries: DashboardModel['series']['pnl'] = []
   for (const day of allDays) {
     cumulativeNetDeposits += netDepositsByDay.get(day) ?? 0
     cumulativeNetTransfers += netTransfersByDay.get(day) ?? 0
+    cumulativeSpotChange += spotChangeByDay.get(day) ?? 0
+    const t = parseDayKeyToUtcMs(day)
     const point = pnlByDay.get(day)
     let equityEod: number | null
-    let t: number
     if (point) {
-      equityEod = point.equityEod
-      t = point.t
-      if (equityEod != null) {
-        lastEquityEod = equityEod
-        lastEquityT = t
+      if (point.equityEod != null) {
+        equityEod = point.equityEod
+        lastEquityEod = point.equityEod
+      } else {
+        equityEod = lastEquityEod
       }
     } else {
       equityEod = lastEquityEod
-      t = lastEquityT || parseDayKeyToUtcMs(day)
     }
     pnlSeries.push({
       t,
       equityEod,
       netDepositsToDate: cumulativeNetDeposits,
       netTransfersToDate: cumulativeNetTransfers,
+      spotChangeToDate: cumulativeSpotChange,
       pnl:
         equityEod == null
           ? null
-          : equityEod - cumulativeNetDeposits - cumulativeNetTransfers,
+          : equityEod - cumulativeNetDeposits - cumulativeNetTransfers - cumulativeSpotChange,
     })
   }
 
@@ -683,6 +742,8 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
       withdrawals,
       netDeposit,
       netTransfers,
+      spotChangeNet,
+      affiliateFeesReceived,
       realisedPnl: realisedPnlTotal,
       pnlCurrent,
       tradeVolumeBtcNotional,
@@ -701,6 +762,7 @@ export function buildDashboardModel(rows: DeribitTxLogRow[]): DashboardModel {
       transfers,
       realisedPnl,
       negativeBalanceFees,
+      affiliateFees,
     },
   }
 }

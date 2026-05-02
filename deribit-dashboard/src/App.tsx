@@ -1,11 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { buildDashboardModel } from './lib/dashboardModel'
 import type { DashboardModel } from './lib/dashboardModel'
 import { ACCOUNT_FIELD_INFO } from './lib/accountFieldInfo'
 import { parseDeribitCsv, sortChronological } from './lib/deribitCsv'
 import { generateStandaloneHtml } from './lib/exportHtml'
-import { formatAsset, formatAssetFixed, formatDate, formatDateTime, formatPeriod, sgtDateKey } from './lib/format'
+import {
+  formatAsset,
+  formatAssetFixed,
+  formatDate,
+  formatDateTime,
+  formatPeriod,
+  sgtDateKey,
+} from './lib/format'
 
 type LoadedState = {
   fileName: string
@@ -13,12 +21,72 @@ type LoadedState = {
   warnings: string[]
 }
 
+const HOVER_INFO_DELAY_MS = 500
+
+const REALISED_PNL_HOVER_TIP = 'PNL of positions that have been closed'
+
+const delayedHoverTooltipClass =
+  'absolute bottom-full left-0 z-50 mb-1 w-max max-w-[min(18rem,calc(100vw-2rem))] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-zinc-700 shadow-lg dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200'
+
+function DelayedHoverTip(props: {
+  tip: string
+  delayMs?: number
+  children: ReactNode
+  /** Applied to the hover hit-area wrapper (default cursor, never help cursor) */
+  wrapperClassName?: string
+}) {
+  const delay = props.delayMs ?? HOVER_INFO_DELAY_MS
+  const [open, setOpen] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearTimer = () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const onEnter = () => {
+    clearTimer()
+    timerRef.current = setTimeout(() => setOpen(true), delay)
+  }
+
+  const onLeave = () => {
+    clearTimer()
+    setOpen(false)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current != null) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [])
+
+  return (
+    <span
+      className={['relative inline-flex', props.wrapperClassName ?? ''].filter(Boolean).join(' ')}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
+      {open ? (
+        <div role="tooltip" className={delayedHoverTooltipClass}>
+          {props.tip}
+        </div>
+      ) : null}
+      {props.children}
+    </span>
+  )
+}
+
 export default function App() {
   const [loaded, setLoaded] = useState<LoadedState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [homeConfirmOpen, setHomeConfirmOpen] = useState(false)
   const [tableTab, setTableTab] = useState<
-    'trades' | 'transfers' | 'realisedPnl' | 'negativeBalanceFees'
+    'trades' | 'transfers' | 'realisedPnl' | 'negativeBalanceFees' | 'affiliateFees'
   >('realisedPnl')
   const [chartTab, setChartTab] = useState<'equity' | 'realisedPnl' | 'pnl'>('equity')
   const [pnlCalOpen, setPnlCalOpen] = useState(false)
@@ -31,57 +99,34 @@ export default function App() {
     setError(null)
   }
 
+  // One point per SGT calendar day (same `t` grid as PNL / realised); equity forward-filled in the model.
   const equityData = useMemo(() => {
     if (!loaded) return []
-    return loaded.model.series.equity.map((p) => ({
+    return loaded.model.series.pnl.map((p) => ({
       t: p.t,
-      equity: p.equity,
+      equity: p.equityEod,
     }))
   }, [loaded])
 
   const realisedPnlChartData = useMemo(() => {
     if (!loaded) return []
 
-    // Daily realised PnL deltas (SGT), summed if multiple closes happen same day.
+    const pnlDays = loaded.model.series.pnl
+    if (pnlDays.length === 0) return []
+
     const dailyDelta = new Map<string, number>()
     for (const row of loaded.model.tables.realisedPnl) {
       const key = sgtDateKey(row.t)
       dailyDelta.set(key, (dailyDelta.get(key) ?? 0) + row.realisedPnl)
     }
 
-    if (equityData.length === 0) return []
-
-    // Same day granularity as Equity chart: one point per SGT calendar day from first equity point to last.
-    const minT = Math.min(...equityData.map((p) => p.t))
-    const maxT = Math.max(...equityData.map((p) => p.t))
-    const startKey = sgtDateKey(minT)
-    const endKey = sgtDateKey(maxT)
-
-    const parseDayKeyToUtcMs = (dayKey: string): number => {
-      const [y, m, d] = dayKey.split('-').map((x) => Number(x))
-      return Date.UTC(y, m - 1, d, 12, 0, 0)
-    }
-
-    const addOneDayKey = (dayKey: string): string => {
-      const ms = parseDayKeyToUtcMs(dayKey)
-      const next = new Date(ms + 24 * 60 * 60 * 1000)
-      return next.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
-    }
-
-    const dayKeys: string[] = []
-    for (let k = startKey; k.localeCompare(endKey) <= 0; k = addOneDayKey(k)) {
-      dayKeys.push(k)
-    }
-
     let cumulative = 0
-    return dayKeys.map((dayKey) => {
-      cumulative += dailyDelta.get(dayKey) ?? 0
-      return {
-        t: parseDayKeyToUtcMs(dayKey),
-        realisedPnl: cumulative,
-      }
+    return pnlDays.map((p) => {
+      const key = sgtDateKey(p.t)
+      cumulative += dailyDelta.get(key) ?? 0
+      return { t: p.t, realisedPnl: cumulative }
     })
-  }, [loaded, equityData])
+  }, [loaded])
 
   const pnlChartData = useMemo(() => {
     if (!loaded) return []
@@ -116,6 +161,60 @@ export default function App() {
   }, [loaded])
 
   const displayUnit = loaded?.model.meta.displayUnit ?? 'BTC'
+  const hasAffiliateFees = (loaded?.model.tables.affiliateFees?.length ?? 0) > 0
+
+  const affiliateFeesTree = useMemo(() => {
+    if (!loaded || !hasAffiliateFees) return null
+    type DayNode = { dayKey: string; total: number; rows: number }
+    type MonthNode = { monthKey: string; label: string; total: number; days: DayNode[] }
+    type YearNode = { year: number; total: number; months: MonthNode[] }
+
+    const dayToTotal = new Map<string, number>()
+    for (const r of loaded.model.tables.affiliateFees) {
+      const key = sgtDateKey(r.t) // YYYY-MM-DD
+      const v = r.feeReceived ?? 0
+      dayToTotal.set(key, (dayToTotal.get(key) ?? 0) + (Number.isFinite(v) ? v : 0))
+    }
+
+    const monthToDays = new Map<string, DayNode[]>()
+    for (const [dayKey, total] of dayToTotal.entries()) {
+      const monthKey = dayKey.slice(0, 7) // YYYY-MM
+      const arr = monthToDays.get(monthKey) ?? []
+      arr.push({ dayKey, total, rows: 1 })
+      monthToDays.set(monthKey, arr)
+    }
+    for (const arr of monthToDays.values()) {
+      arr.sort((a, b) => b.dayKey.localeCompare(a.dayKey))
+    }
+
+    const yearToMonths = new Map<number, MonthNode[]>()
+    for (const [monthKey, days] of monthToDays.entries()) {
+      const y = Number(monthKey.slice(0, 4))
+      const m = Number(monthKey.slice(5, 7))
+      const d = new Date(Date.UTC(y, m - 1, 1, 12, 0, 0))
+      const label = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' }).format(d)
+      let monthTotal = 0
+      for (const dd of days) monthTotal += dd.total
+      const arr = yearToMonths.get(y) ?? []
+      arr.push({ monthKey, label, total: monthTotal, days })
+      yearToMonths.set(y, arr)
+    }
+    for (const arr of yearToMonths.values()) {
+      arr.sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+    }
+
+    const years: YearNode[] = []
+    for (const [year, months] of yearToMonths.entries()) {
+      let yearTotal = 0
+      for (const mm of months) yearTotal += mm.total
+      years.push({ year, total: yearTotal, months })
+    }
+    years.sort((a, b) => b.year - a.year)
+    return years
+  }, [loaded, hasAffiliateFees])
+
+  const [affOpenYears, setAffOpenYears] = useState<Set<number>>(new Set())
+  const [affOpenMonths, setAffOpenMonths] = useState<Set<string>>(new Set())
 
   async function onFileSelected(file: File) {
     setError(null)
@@ -304,13 +403,14 @@ export default function App() {
                     : formatAssetFixed(loaded.model.totals.pnlCurrent, 4, displayUnit)
                 }
                 valueNumber={loaded.model.totals.pnlCurrent}
-                actionLabel="PNL Calendar"
-                onAction={() => setPnlCalOpen(true)}
               />
               <StatCard
                 label="REALISED PNL (TOTAL)"
                 value={formatAssetFixed(loaded.model.totals.realisedPnl, 4, displayUnit)}
                 valueNumber={loaded.model.totals.realisedPnl}
+                hoverInfo={REALISED_PNL_HOVER_TIP}
+                actionLabel="RPNL Calendar"
+                onAction={() => setPnlCalOpen(true)}
               />
               <StatCard
                 label="FEES (TOTAL)"
@@ -334,8 +434,8 @@ export default function App() {
               />
             ) : null}
 
-            <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
-              <div className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:col-span-2">
+            <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-4">
+              <div className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:col-span-3">
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <button
@@ -372,7 +472,7 @@ export default function App() {
                           : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
                       ].join(' ')}
                     >
-                      Realised PnL
+                      <DelayedHoverTip tip={REALISED_PNL_HOVER_TIP}>Realised PnL</DelayedHoverTip>
                     </button>
                   </div>
                   <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
@@ -513,36 +613,52 @@ export default function App() {
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">
-                        Trade Volume ({displayUnit} Notional)
+                        Volume Traded
                       </span>
                       <span className="font-medium">
-                        {formatAsset(loaded.model.totals.tradeVolumeBtcNotional, displayUnit)}
+                        {formatAssetFixed(loaded.model.totals.tradeVolumeBtcNotional, 2, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Net Deposit</span>
                       <span className="font-medium">
-                        {formatAsset(loaded.model.totals.netDeposit, displayUnit)}
+                        {formatAssetFixed(loaded.model.totals.netDeposit, 4, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Deposits</span>
                       <span className="font-medium">
-                        {formatAsset(loaded.model.totals.deposits, displayUnit)}
+                        {formatAssetFixed(loaded.model.totals.deposits, 4, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Withdrawals</span>
                       <span className="font-medium">
-                        {formatAsset(loaded.model.totals.withdrawals, displayUnit)}
+                        {formatAssetFixed(loaded.model.totals.withdrawals, 4, displayUnit)}
                       </span>
                     </li>
                     <li className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-zinc-600 dark:text-zinc-300">Net Transfers</span>
                       <span className="font-medium">
-                        {formatAsset(loaded.model.totals.netTransfers, displayUnit)}
+                        {formatAssetFixed(loaded.model.totals.netTransfers, 4, displayUnit)}
                       </span>
                     </li>
+                    <li className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate text-zinc-600 dark:text-zinc-300">
+                        Spot Bought/Sold
+                      </span>
+                      <span className="font-medium">
+                        {formatAssetFixed(loaded.model.totals.spotChangeNet, 4, displayUnit)}
+                      </span>
+                    </li>
+                    {loaded.model.totals.affiliateFeesReceived !== 0 ? (
+                      <li className="flex items-center justify-between gap-3 text-sm">
+                        <span className="truncate text-zinc-600 dark:text-zinc-300">Affiliate Fees</span>
+                        <span className="font-medium">
+                          {formatAssetFixed(loaded.model.totals.affiliateFeesReceived, 4, displayUnit)}
+                        </span>
+                      </li>
+                    ) : null}
                   </ul>
                 </Panel>
               </div>
@@ -599,6 +715,20 @@ export default function App() {
                   >
                     Transfers
                   </button>
+                  {hasAffiliateFees ? (
+                    <button
+                      type="button"
+                      onClick={() => setTableTab('affiliateFees')}
+                      className={[
+                        'cursor-pointer rounded-md px-3 py-1.5 text-sm font-semibold',
+                        tableTab === 'affiliateFees'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                          : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                      ].join(' ')}
+                    >
+                      Affiliate Fees
+                    </button>
+                  ) : null}
                 </div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">
                   Showing up to 50 rows
@@ -607,7 +737,7 @@ export default function App() {
               <div className="h-[420px] overflow-auto border-t border-zinc-200 dark:border-zinc-800">
                 {tableTab === 'trades' ? (
                   <table className="min-w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
+                    <thead className="border-b border-zinc-200 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
                         <Th>Instrument</Th>
@@ -642,9 +772,10 @@ export default function App() {
                   </table>
                 ) : tableTab === 'transfers' ? (
                   <table className="min-w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
+                    <thead className="border-b border-zinc-200 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
+                        <Th>Type</Th>
                         <Th>IN/OUT</Th>
                         <Th className="text-right">Change</Th>
                         <Th className="text-right">Resulting Equity</Th>
@@ -655,6 +786,17 @@ export default function App() {
                       {loaded.model.tables.transfers.slice(0, 50).map((r) => (
                         <tr key={`${r.t}-${r.type}-${r.note ?? ''}-${r.info ?? ''}`}>
                           <Td className="whitespace-nowrap">{formatDateTime(r.t)}</Td>
+                          <Td className="whitespace-nowrap">
+                            {r.type === 'deposit'
+                              ? 'DEPOSIT'
+                              : r.type === 'withdrawal' || r.type === 'withdraw'
+                                ? 'WITHDRAWAL'
+                                : r.type === 'transfer'
+                                  ? 'TRANSFER'
+                                  : r.type
+                                    ? r.type.toUpperCase()
+                                    : '-'}
+                          </Td>
                           <Td className="whitespace-nowrap">
                             {typeof r.change === 'number' && Number.isFinite(r.change) && r.change > 0
                               ? 'IN'
@@ -680,7 +822,7 @@ export default function App() {
                   </table>
                 ) : tableTab === 'realisedPnl' ? (
                   <table className="min-w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
+                    <thead className="border-b border-zinc-200 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
                         <Th>Side</Th>
@@ -748,9 +890,90 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                ) : tableTab === 'affiliateFees' ? (
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="border-b border-zinc-200 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                      <tr>
+                        <Th>Date</Th>
+                        <Th className="text-right">Fee Received</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                      {(affiliateFeesTree ?? []).flatMap((yy) => {
+                        const yearOpen = affOpenYears.has(yy.year)
+                        const yearRow = (
+                          <tr key={`y-${yy.year}`}>
+                            <Td className="whitespace-nowrap">
+                              <button
+                                type="button"
+                                className="cursor-pointer font-semibold text-zinc-200 hover:text-zinc-50"
+                                onClick={() => {
+                                  setAffOpenYears((prev) => {
+                                    const n = new Set(prev)
+                                    if (n.has(yy.year)) n.delete(yy.year)
+                                    else n.add(yy.year)
+                                    return n
+                                  })
+                                }}
+                              >
+                                <span className="inline-block w-4">{yearOpen ? '▾' : '▸'}</span>
+                                {yy.year}
+                              </button>
+                            </Td>
+                            <Td className="whitespace-nowrap text-right">{formatAsset(yy.total, displayUnit)}</Td>
+                          </tr>
+                        )
+
+                        const monthRows = !yearOpen
+                          ? []
+                          : yy.months.flatMap((mm) => {
+                              const monthOpen = affOpenMonths.has(mm.monthKey)
+                              const monthRow = (
+                                <tr key={`m-${mm.monthKey}`}>
+                                  <Td className="whitespace-nowrap">
+                                    <button
+                                      type="button"
+                                      className="cursor-pointer pl-6 font-semibold text-zinc-200 hover:text-zinc-50"
+                                      onClick={() => {
+                                        setAffOpenMonths((prev) => {
+                                          const n = new Set(prev)
+                                          if (n.has(mm.monthKey)) n.delete(mm.monthKey)
+                                          else n.add(mm.monthKey)
+                                          return n
+                                        })
+                                      }}
+                                    >
+                                      <span className="inline-block w-4">{monthOpen ? '▾' : '▸'}</span>
+                                      {mm.label}
+                                    </button>
+                                  </Td>
+                                  <Td className="whitespace-nowrap text-right">
+                                    {formatAsset(mm.total, displayUnit)}
+                                  </Td>
+                                </tr>
+                              )
+
+                              const dayRows = !monthOpen
+                                ? []
+                                : mm.days.map((dd) => (
+                                    <tr key={`d-${dd.dayKey}`}>
+                                      <Td className="whitespace-nowrap pl-14">{dd.dayKey}</Td>
+                                      <Td className="whitespace-nowrap text-right">
+                                        {formatAsset(dd.total, displayUnit)}
+                                      </Td>
+                                    </tr>
+                                  ))
+
+                              return [monthRow, ...dayRows]
+                            })
+
+                        return [yearRow, ...monthRows]
+                      })}
+                    </tbody>
+                  </table>
                 ) : (
                   <table className="min-w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400">
+                    <thead className="border-b border-zinc-200 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                       <tr>
                         <Th>Date</Th>
                         <Th className="text-right">Equity</Th>
@@ -830,16 +1053,27 @@ function StatCard(props: {
   valueNumber?: number | null
   actionLabel?: string
   onAction?: () => void
+  /** Info popover after 500ms hover on the label text only */
+  hoverInfo?: string
 }) {
   const n = props.valueNumber
   const color =
     typeof n === 'number' && Number.isFinite(n) ? (n > 0 ? '#21AC77' : n < 0 ? '#E34951' : null) : null
+
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex h-7 items-center justify-between gap-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          {props.label}
-        </div>
+        {props.hoverInfo ? (
+          <DelayedHoverTip tip={props.hoverInfo} wrapperClassName="min-w-0 max-w-[calc(100%-4rem)]">
+            <span className="truncate text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              {props.label}
+            </span>
+          </DelayedHoverTip>
+        ) : (
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            {props.label}
+          </div>
+        )}
         {props.onAction ? (
           <button
             type="button"
@@ -1049,7 +1283,7 @@ function PnlCalendarModal(props: {
                 type="button"
                 disabled={!canPrevBtn}
                 className={[
-                  'rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm font-semibold text-zinc-100',
+                  'inline-flex size-9 shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-900 p-0 text-sm font-semibold leading-none text-zinc-100',
                   canPrevBtn ? 'cursor-pointer hover:bg-zinc-800' : 'cursor-default opacity-50',
                 ].join(' ')}
                 onClick={prev}
@@ -1088,7 +1322,7 @@ function PnlCalendarModal(props: {
                 type="button"
                 disabled={!canNextBtn}
                 className={[
-                  'rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-sm font-semibold text-zinc-100',
+                  'inline-flex size-9 shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-900 p-0 text-sm font-semibold leading-none text-zinc-100',
                   canNextBtn ? 'cursor-pointer hover:bg-zinc-800' : 'cursor-default opacity-50',
                 ].join(' ')}
                 onClick={next}
@@ -1248,7 +1482,7 @@ function Th(props: React.ThHTMLAttributes<HTMLTableCellElement>) {
     <th
       {...props}
       className={[
-        'px-4 py-2 font-medium',
+        'sticky top-0 z-10 bg-zinc-50 px-4 py-2 font-medium shadow-sm dark:bg-zinc-950 dark:shadow-[0_1px_0_0_rgb(39_39_42)]',
         typeof props.className === 'string' ? props.className : '',
       ].join(' ')}
     />
